@@ -838,8 +838,14 @@ async def get_base_token_transactions(wallet_address: str, token_addresses: List
                 token_meta_response = requests.post(alchemy_url, json=token_meta_payload)
                 token_meta_data = token_meta_response.json()
                 
-                if 'result' in token_meta_data and token_meta_data['result'].get('symbol'):
+                # First check if we have a known name for this token
+                if token_address in BASE_TOKEN_NAMES:
+                    token_symbol = BASE_TOKEN_NAMES[token_address]
+                    logger.info(f"Using known token name {token_symbol} for {token_address}")
+                # Then try to get from API response
+                elif 'result' in token_meta_data and token_meta_data['result'].get('symbol'):
                     token_symbol = token_meta_data['result'].get('symbol')
+                # Fall back to address prefix
                 else:
                     # Use first 6 chars of address if we can't get the symbol
                     token_symbol = token_address[2:8]
