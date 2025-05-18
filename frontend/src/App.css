@@ -422,6 +422,11 @@ body {
   100% { transform: rotate(360deg); }
 }
 
+.leaderboard-table .token-name {
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
 /* Responsive adjustments */
 @media (max-width: 768px) {
   .title {
