@@ -435,7 +435,7 @@ const Home = () => {
         </div>
         
         <div className="disclaimer">
-          This tool queries real blockchain data to analyze memecoin transactions. If no memecoin trades are found, sample data may be used as a fallback.
+          This tool queries real blockchain data to analyze memecoin transactions. Only actual buy/sell trades are included - airdrops and free tokens are filtered out.
         </div>
         
         {showLeaderboard ? (
