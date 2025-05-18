@@ -57,9 +57,15 @@ const Search = ({ onSearch }) => {
       if (error.response) {
         // The request was made and the server responded with a status code
         // that falls out of the range of 2xx
-        const errorDetail = error.response.data.detail || "Failed to analyze wallet";
-        setError(errorDetail);
-        toast.error(errorDetail);
+        const errorDetail = error.response.data.detail;
+        const errorMessage = typeof errorDetail === 'string' 
+          ? errorDetail 
+          : (Array.isArray(errorDetail) && errorDetail.length > 0 && errorDetail[0].msg) 
+            ? errorDetail[0].msg 
+            : "Failed to analyze wallet";
+            
+        setError(errorMessage);
+        toast.error(errorMessage);
       } else if (error.request) {
         // The request was made but no response was received
         setError("No response from server. Please try again later.");
