@@ -73,14 +73,14 @@ class MemecoinsAPITester:
             data={"wallet_address": wallet_address, "blockchain": "base"}
         )
     
-    def test_invalid_blockchain(self, wallet_address="5FHwkrdxD5AKmYi9B1zXUU6ViTxPgZsJrtZfP2hkhF52"):
-        """Test with invalid blockchain parameter"""
+    def test_invalid_wallet_address(self):
+        """Test with invalid wallet address"""
         return self.run_test(
-            "Invalid Blockchain Parameter",
+            "Invalid Wallet Address",
             "POST",
             "api/analyze",
             400,
-            data={"wallet_address": wallet_address, "blockchain": "invalid"}
+            data={"wallet_address": "invalid-address", "blockchain": "solana"}
         )
     
     def test_leaderboard_solana(self, stat_type="best_trade"):
