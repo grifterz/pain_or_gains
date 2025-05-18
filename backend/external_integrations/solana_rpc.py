@@ -276,23 +276,12 @@ def get_token_info(token_address: str) -> Optional[Dict[str, Any]]:
     
     return None
 
-def get_name_for_pengu_token():
-    """
-    Special case for the PENGU KILLER token since direct lookups might fail
-    """
-    # Based on your confirmation that this token is "THE PENGU KILLER" with symbol "ORCA"
-    return "THE PENGU KILLER", "ORCA"
-
 def get_token_name_and_symbol(token_address: str) -> Tuple[str, str]:
     """
     Get token name and symbol from Solana blockchain
     Returns a tuple of (name, symbol)
     """
     logger.info(f"Getting token name and symbol for {token_address}")
-    
-    # Special case for the PENGU token
-    if token_address == "5HyZiyaSsQt8VZBAJcULZhtykiVmkAkWLiQJCER9pump":
-        return get_name_for_pengu_token()
     
     # First try to get metadata
     metadata = get_token_metadata_account(token_address)
