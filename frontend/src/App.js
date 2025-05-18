@@ -3,7 +3,7 @@ import "./App.css";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import axios from "axios";
 import { Toaster, toast } from 'react-hot-toast';
-import { FaSearch, FaChartLine, FaTrophy, FaExchangeAlt, FaSadTear, FaInfoCircle } from 'react-icons/fa';
+import { FaSearch, FaChartLine, FaTrophy, FaExchangeAlt, FaSadTear, FaInfoCircle, FaSpinner } from 'react-icons/fa';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -40,8 +40,26 @@ const Search = ({ onSearch }) => {
       return;
     }
     
+    // Validate wallet address format
+    const isValidAddress = blockchain === "solana" 
+      ? validateSolanaAddress(wallet)
+      : validateBaseAddress(wallet);
+      
+    if (!isValidAddress) {
+      const errorMessage = blockchain === "solana"
+        ? "Invalid Solana wallet address format"
+        : "Invalid Base/Ethereum wallet address format (must start with 0x)";
+      
+      toast.error(errorMessage);
+      setError(errorMessage);
+      return;
+    }
+    
     setIsLoading(true);
     setError("");
+    
+    // Show loading toast
+    const loadingToast = toast.loading(`Analyzing ${blockchain} wallet...`);
     
     try {
       const response = await axios.post(`${API}/analyze`, {
@@ -49,20 +67,37 @@ const Search = ({ onSearch }) => {
         blockchain: blockchain
       });
       
+      toast.dismiss(loadingToast);
+      
+      // Check if we got real data (not just empty values)
+      const hasRealData = response.data.best_trade_token || 
+                          response.data.best_multiplier_token || 
+                          response.data.worst_trade_token;
+      
+      if (hasRealData) {
+        toast.success("Analysis complete!");
+      } else {
+        toast.warning("No memecoin transactions found for this wallet");
+      }
+      
       onSearch(response.data);
-      toast.success("Analysis complete!");
     } catch (error) {
+      toast.dismiss(loadingToast);
       console.error("Error analyzing wallet:", error);
       
       if (error.response) {
         // The request was made and the server responded with a status code
         // that falls out of the range of 2xx
-        const errorDetail = error.response.data.detail;
-        const errorMessage = typeof errorDetail === 'string' 
-          ? errorDetail 
-          : (Array.isArray(errorDetail) && errorDetail.length > 0 && errorDetail[0].msg) 
-            ? errorDetail[0].msg 
-            : "Failed to analyze wallet";
+        const errorData = error.response.data;
+        let errorMessage = "Failed to analyze wallet";
+        
+        if (typeof errorData === 'string') {
+          errorMessage = errorData;
+        } else if (typeof errorData.detail === 'string') {
+          errorMessage = errorData.detail;
+        } else if (Array.isArray(errorData.detail) && errorData.detail.length > 0) {
+          errorMessage = errorData.detail[0].msg || "Validation error";
+        }
             
         setError(errorMessage);
         toast.error(errorMessage);
@@ -115,14 +150,20 @@ const Search = ({ onSearch }) => {
           <button 
             type="button"
             className={`tab ${blockchain === "solana" ? "active" : ""}`}
-            onClick={() => setBlockchain("solana")}
+            onClick={() => {
+              setBlockchain("solana");
+              setError("");
+            }}
           >
             Solana
           </button>
           <button 
             type="button"
             className={`tab ${blockchain === "base" ? "active" : ""}`}
-            onClick={() => setBlockchain("base")}
+            onClick={() => {
+              setBlockchain("base");
+              setError("");
+            }}
           >
             Base
           </button>
@@ -133,11 +174,15 @@ const Search = ({ onSearch }) => {
             type="text"
             placeholder={getAddressPlaceholder()}
             value={wallet}
-            onChange={(e) => setWallet(e.target.value)}
+            onChange={(e) => {
+              setWallet(e.target.value);
+              setError("");
+            }}
             className={`search-input ${getAddressValidationClass()}`}
+            disabled={isLoading}
           />
           <button type="submit" className="search-button" disabled={isLoading}>
-            {isLoading ? "Analyzing..." : <FaSearch />}
+            {isLoading ? <FaSpinner className="spinner" /> : <FaSearch />}
           </button>
         </div>
         
@@ -168,14 +213,14 @@ const Results = ({ results }) => {
           <div className="stat-icon"><FaTrophy /></div>
           <h3>Best Trade</h3>
           <p className="stat-value">{results.best_trade_profit.toFixed(4)} {getCurrencySymbol()}</p>
-          <p className="stat-token">{results.best_trade_token}</p>
+          <p className="stat-token">{results.best_trade_token || "No data"}</p>
         </div>
         
         <div className="stat-card best-multiplier">
           <div className="stat-icon"><FaChartLine /></div>
           <h3>Best Multiplier</h3>
           <p className="stat-value">{results.best_multiplier.toFixed(2)}x</p>
-          <p className="stat-token">{results.best_multiplier_token}</p>
+          <p className="stat-token">{results.best_multiplier_token || "No data"}</p>
         </div>
         
         <div className="stat-card pnl">
@@ -191,7 +236,7 @@ const Results = ({ results }) => {
           <div className="stat-icon"><FaSadTear /></div>
           <h3>Worst Trade</h3>
           <p className="stat-value negative">{results.worst_trade_loss.toFixed(4)} {getCurrencySymbol()}</p>
-          <p className="stat-token">{results.worst_trade_token}</p>
+          <p className="stat-token">{results.worst_trade_token || "No data"}</p>
         </div>
       </div>
     </div>
@@ -296,7 +341,9 @@ const Leaderboard = () => {
       </div>
       
       {isLoading ? (
-        <div className="loading">Loading leaderboard data...</div>
+        <div className="loading">
+          <FaSpinner className="spinner" /> Loading leaderboard data...
+        </div>
       ) : (
         <div className="leaderboard-table-container">
           <table className="leaderboard-table">
@@ -319,7 +366,7 @@ const Leaderboard = () => {
                     <td>#{entry.rank}</td>
                     <td>{entry.wallet_address.slice(0, 6)}...{entry.wallet_address.slice(-4)}</td>
                     <td className={statType === "worst_trade" ? "negative" : ""}>{formatValue(entry)}</td>
-                    <td>{entry.token}</td>
+                    <td>{entry.token || "N/A"}</td>
                   </tr>
                 ))
               )}
