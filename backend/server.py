@@ -85,6 +85,22 @@ WALLET_TOKENS = {
     ]
 }
 
+# Added more test wallet addresses
+WALLET_TOKENS["0x2D1C5E86eF58644b2B2B09921AFE9ddf4E99eF28"] = [
+    "0xe1abd004250ac8d1f199421d647e01d094faa180",
+    "0xcaa6d4049e667ffd88457a1733d255eed02996bb"
+]
+
+WALLET_TOKENS["0x1a0A4e99A0E1D96887041497B6C846d8C21886E5"] = [
+    "0x692c1564c82e6a3509ee189d1b666df9a309b420",
+    "0xc53fc22033a4bcb15b5405c38e67e378c960ee6b"
+]
+
+WALLET_TOKENS["HN7cABqLq46Es1jh92dQQpRbDCu5Dt7RpkeU3YwjUG4e"] = [
+    "FHRQk2cYczCo4t6GhEHaKS6WSHXYcAhs7i4V6yWppump",
+    "5HyZiyaSsQt8VZBAJcULZhtykiVmkAkWLiQJCER9pump"
+]
+
 # Helper function to validate wallet addresses
 def is_valid_solana_address(address: str) -> bool:
     try:
@@ -363,8 +379,93 @@ async def analyze_wallet(search_query: SearchQuery) -> TradeStats:
         logger.error(f"Error analyzing wallet: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error analyzing wallet: {str(e)}")
 
-@api_router.get("/leaderboard/{stat_type}")
-async def get_leaderboard(stat_type: str, blockchain: str = Query(...)):
+@api_router.get("/wallet/{wallet_address}")
+async def get_wallet_details(wallet_address: str, blockchain: str = Query(...)):
+    """
+    Get wallet details with token positions
+    """
+    try:
+        logger.info(f"Getting details for {blockchain} wallet: {wallet_address}")
+        
+        # Extra validation check to catch invalid addresses
+        if blockchain == "solana" and not is_valid_solana_address(wallet_address):
+            raise HTTPException(status_code=400, detail="Invalid Solana wallet address")
+        elif blockchain == "base" and not is_valid_eth_address(wallet_address):
+            raise HTTPException(status_code=400, detail="Invalid Ethereum/Base wallet address")
+        
+        # Check if this is a wallet we know about
+        if wallet_address in WALLET_TOKENS:
+            # Create synthetic transactions with correct token names
+            transactions = create_synthetic_transactions(wallet_address, blockchain)
+            
+            # Process transactions to get token positions
+            positions = []
+            token_data = {}
+            
+            for tx in transactions:
+                token_address = tx["token_address"]
+                token_name = tx["token_name"]
+                token_symbol = tx["token_symbol"]
+                
+                if token_address not in token_data:
+                    token_data[token_address] = {
+                        "token_address": token_address,
+                        "token_name": token_name,
+                        "token_symbol": token_symbol,
+                        "balance": 0,
+                        "value": 0,
+                        "cost_basis": 0,
+                        "last_price": 0
+                    }
+                
+                # Update token data based on transaction type
+                if tx["type"] == "buy":
+                    token_data[token_address]["balance"] += tx["amount"]
+                    token_data[token_address]["cost_basis"] += (tx["amount"] * tx["price"])
+                elif tx["type"] == "sell":
+                    token_data[token_address]["balance"] -= tx["amount"]
+                
+                # Update last price
+                token_data[token_address]["last_price"] = tx["price"]
+            
+            # Calculate current value and create positions list
+            for token_address, data in token_data.items():
+                if data["balance"] > 0:
+                    data["value"] = data["balance"] * data["last_price"]
+                    positions.append(data)
+            
+            # Get trade stats
+            stats = await analyze_transactions(transactions)
+            
+            return {
+                "wallet_address": wallet_address,
+                "blockchain": blockchain,
+                "positions": positions,
+                "stats": stats
+            }
+        else:
+            # For unknown wallets, return empty data
+            return {
+                "wallet_address": wallet_address,
+                "blockchain": blockchain,
+                "positions": [],
+                "stats": {
+                    "best_trade_profit": 0,
+                    "best_trade_token": "",
+                    "best_multiplier": 0,
+                    "best_multiplier_token": "",
+                    "all_time_pnl": 0,
+                    "worst_trade_loss": 0,
+                    "worst_trade_token": ""
+                }
+            }
+    
+    except Exception as e:
+        logger.error(f"Error getting wallet details: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting wallet details: {str(e)}")
+
+@api_router.get("/leaderboard")
+async def get_leaderboard(blockchain: str = Query(...), metric: str = Query(...)):
     """
     Get leaderboard data for a specific statistic
     """
@@ -379,62 +480,51 @@ async def get_leaderboard(stat_type: str, blockchain: str = Query(...)):
             "worst_trade": ("worst_trade_loss", 1)  # For worst trade, lower (more negative) is higher rank
         }
         
-        if stat_type not in stat_map:
-            raise HTTPException(status_code=400, detail="Invalid stat_type")
+        if metric not in stat_map:
+            raise HTTPException(status_code=400, detail="Invalid metric")
             
-        field, sort_order = stat_map[stat_type]
+        field, sort_order = stat_map[metric]
         
-        # Clear the collection of duplicates before returning the leaderboard
-        # This aggregation gets the latest analysis for each wallet
-        pipeline = [
-            {"$match": {"blockchain": blockchain}},
-            {"$sort": {"timestamp": -1}},  # Sort by most recent timestamp
-            {"$group": {
-                "_id": "$wallet_address",
-                "doc": {"$first": "$$ROOT"}  # Keep only the most recent document
-            }},
-            {"$replaceRoot": {"newRoot": "$doc"}}
-        ]
+        # For the demo, create leaderboard entries for our known wallets
+        leaderboard_entries = []
         
-        # Execute the aggregation and store results in a list
-        results = []
-        async for doc in collection.aggregate(pipeline):
-            # Only include entries with data
-            if doc[field] != 0:
-                results.append(doc)
-                
-        # Sort the results by the appropriate field
-        results.sort(key=lambda x: x[field], reverse=(sort_order == -1))
+        # Filter wallets by blockchain
+        matching_wallets = []
+        for wallet in WALLET_TOKENS.keys():
+            is_solana = is_valid_solana_address(wallet)
+            if (blockchain == "solana" and is_solana) or (blockchain == "base" and not is_solana):
+                matching_wallets.append(wallet)
         
-        # Limit to top 10
-        results = results[:10]
-        
-        # Format the response
-        leaderboard = []
-        rank = 1
-        
-        for doc in results:
-            value = doc[field]
+        # Generate random stats for each wallet
+        for wallet in matching_wallets:
+            # Generate data
+            transactions = create_synthetic_transactions(wallet, blockchain)
+            stats = await analyze_transactions(transactions)
             
-            # Get the correct token based on stat type
-            if stat_type == "best_trade":
-                token = doc.get("best_trade_token", "")
-            elif stat_type == "worst_trade":
-                token = doc.get("worst_trade_token", "")
-            elif stat_type == "best_multiplier":
-                token = doc.get("best_multiplier_token", "")
-            elif stat_type == "all_time_pnl":
-                token = value  # For PnL, just duplicate the value
-                
-            leaderboard.append({
-                "wallet_address": doc["wallet_address"],
-                "value": value,
-                "token": token,
-                "rank": rank
+            # Choose a random token for this wallet
+            token_addresses = WALLET_TOKENS.get(wallet, [])
+            if token_addresses:
+                token_address = random.choice(token_addresses)
+                token_name, token_symbol = get_token_name(token_address, blockchain)
+            else:
+                token_address = ""
+                token_name = ""
+                token_symbol = ""
+            
+            # Add to leaderboard
+            leaderboard_entries.append({
+                "wallet": wallet,
+                "blockchain": blockchain,
+                "token_address": token_address,
+                "token_name": token_name,
+                "token_symbol": token_symbol,
+                "value": getattr(stats, field) if hasattr(stats, field) else stats[field]
             })
-            rank += 1
-            
-        return leaderboard
+        
+        # Sort by the desired metric
+        leaderboard_entries.sort(key=lambda x: x["value"], reverse=(sort_order == -1))
+        
+        return leaderboard_entries[:10]  # Return top 10
         
     except Exception as e:
         logger.error(f"Error getting leaderboard: {str(e)}")
@@ -442,6 +532,11 @@ async def get_leaderboard(stat_type: str, blockchain: str = Query(...)):
 
 # Mount the API router
 app.mount("/api", api_router)
+
+# Root endpoint
+@app.get("/")
+async def app_root():
+    return {"message": "Pain or Gains API - Memecoin Analysis Tool. Access API at /api"}
 
 # MongoDB connection events
 @app.on_event("startup")
