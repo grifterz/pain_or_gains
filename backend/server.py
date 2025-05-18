@@ -168,126 +168,139 @@ async def get_solana_transactions(wallet_address: str) -> List[Dict[str, Any]]:
             "Content-Type": "application/json"
         }
         
-        # Get transaction signatures for the wallet (most recent first)
-        payload = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "getSignaturesForAddress",
-            "params": [
-                wallet_address,
-                {
-                    "limit": 50  # Limit to most recent 50 transactions
-                }
-            ]
-        }
-        
-        response = requests.post(SOLANA_RPC_URL, headers=headers, json=payload)
-        signatures_data = response.json()
-        
-        if 'error' in signatures_data:
-            logger.error(f"Error from Solana API: {signatures_data['error']}")
-            return []
-        
-        signatures = [item['signature'] for item in signatures_data.get('result', [])]
-        logger.info(f"Found {len(signatures)} signatures for wallet {wallet_address}")
-        
-        if not signatures:
-            return []
-        
-        # Process each transaction to identify memecoin transactions
         memecoin_transactions = []
         
-        for sig in signatures[:30]:  # Limit to 30 transactions to avoid timeout
-            try:
-                # Get transaction details
-                tx_payload = {
-                    "jsonrpc": "2.0",
-                    "id": 1,
-                    "method": "getTransaction",
-                    "params": [
-                        sig,
-                        {
-                            "encoding": "json",
-                            "maxSupportedTransactionVersion": 0
-                        }
-                    ]
-                }
-                
-                tx_response = requests.post(SOLANA_RPC_URL, headers=headers, json=tx_payload)
-                tx_data = tx_response.json()
-                
-                if 'error' in tx_data or not tx_data.get('result'):
-                    continue
-                
-                result = tx_data.get('result', {})
-                meta = result.get('meta', {})
-                
-                # Skip failed transactions
-                if meta.get('err'):
-                    continue
-                
-                # Get token balances before and after
-                pre_balances = meta.get('preTokenBalances', [])
-                post_balances = meta.get('postTokenBalances', [])
-                
-                # Skip if no token activity
-                if not pre_balances and not post_balances:
-                    continue
-                
-                # Check for memecoin transfers
-                for post_balance in post_balances:
-                    mint = post_balance.get('mint')
-                    owner = post_balance.get('owner')
+        try:
+            # Get transaction signatures for the wallet (most recent first)
+            payload = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getSignaturesForAddress",
+                "params": [
+                    wallet_address,
+                    {
+                        "limit": 50  # Limit to most recent 50 transactions
+                    }
+                ]
+            }
+            
+            logger.info(f"Requesting signatures from Solana RPC: {SOLANA_RPC_URL}")
+            response = requests.post(SOLANA_RPC_URL, headers=headers, json=payload)
+            signatures_data = response.json()
+            
+            if 'error' in signatures_data:
+                logger.error(f"Error from Solana API: {signatures_data['error']}")
+                raise Exception(f"Solana API error: {signatures_data['error']['message'] if 'message' in signatures_data['error'] else str(signatures_data['error'])}")
+            
+            if 'result' not in signatures_data:
+                logger.error(f"Unexpected response format from Solana API: {signatures_data}")
+                raise Exception("Invalid response format from Solana API")
+            
+            signatures = [item['signature'] for item in signatures_data.get('result', [])]
+            logger.info(f"Found {len(signatures)} signatures for wallet {wallet_address}")
+            
+            if not signatures:
+                logger.warning(f"No transactions found for wallet {wallet_address}")
+                raise Exception("No transactions found")
+            
+            # Process each transaction to identify memecoin transactions
+            for sig in signatures[:10]:  # Limit to 10 transactions to avoid timeout
+                try:
+                    # Get transaction details
+                    tx_payload = {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "getTransaction",
+                        "params": [
+                            sig,
+                            {
+                                "encoding": "json",
+                                "maxSupportedTransactionVersion": 0
+                            }
+                        ]
+                    }
                     
-                    # Skip if not a known memecoin or not owned by the wallet
-                    if mint not in SOLANA_MEMECOINS or owner != wallet_address:
+                    tx_response = requests.post(SOLANA_RPC_URL, headers=headers, json=tx_payload)
+                    tx_data = tx_response.json()
+                    
+                    if 'error' in tx_data or not tx_data.get('result'):
+                        logger.warning(f"Error or no result for transaction {sig}: {tx_data.get('error', 'No result')}")
                         continue
                     
-                    # Find matching pre-balance
-                    pre_balance = next((b for b in pre_balances if b.get('mint') == mint and b.get('owner') == owner), None)
+                    result = tx_data.get('result', {})
+                    meta = result.get('meta', {})
                     
-                    post_amount = float(post_balance.get('uiTokenAmount', {}).get('uiAmount', 0))
-                    pre_amount = float(pre_balance.get('uiTokenAmount', {}).get('uiAmount', 0)) if pre_balance else 0
-                    
-                    # Determine if buy or sell
-                    if post_amount > pre_amount:
-                        # This is a buy
-                        amount = post_amount - pre_amount
-                        tx_type = "buy"
-                    elif post_amount < pre_amount:
-                        # This is a sell
-                        amount = pre_amount - post_amount
-                        tx_type = "sell"
-                    else:
-                        # No change in token amount, skip
+                    # Skip failed transactions
+                    if meta.get('err'):
                         continue
                     
-                    # Estimate price based on SOL change
-                    # NOTE: This is a simplification - real price would require DEX query
-                    sol_change = abs(meta.get('postBalances', [0])[0] - meta.get('preBalances', [0])[0]) / 1_000_000_000  # Convert lamports to SOL
-                    price = sol_change / amount if amount > 0 else 0
+                    # Get token balances before and after
+                    pre_balances = meta.get('preTokenBalances', [])
+                    post_balances = meta.get('postTokenBalances', [])
                     
-                    # Add to transactions list
-                    memecoin_transactions.append({
-                        "tx_hash": sig,
-                        "wallet_address": wallet_address,
-                        "token_address": mint,
-                        "token_symbol": SOLANA_MEMECOINS.get(mint, "Unknown"),
-                        "amount": amount,
-                        "price": price,
-                        "timestamp": result.get('blockTime', int(time.time())),
-                        "type": tx_type
-                    })
-                
-                # Small delay to avoid rate limiting
-                await asyncio.sleep(0.1)
-                
-            except Exception as e:
-                logger.error(f"Error processing transaction {sig}: {str(e)}")
-                continue
+                    # Skip if no token activity
+                    if not pre_balances and not post_balances:
+                        continue
+                    
+                    # Check for memecoin transfers
+                    for post_balance in post_balances:
+                        mint = post_balance.get('mint')
+                        owner = post_balance.get('owner')
+                        
+                        # Skip if not a known memecoin or not owned by the wallet
+                        if mint not in SOLANA_MEMECOINS or owner != wallet_address:
+                            continue
+                        
+                        # Find matching pre-balance
+                        pre_balance = next((b for b in pre_balances if b.get('mint') == mint and b.get('owner') == owner), None)
+                        
+                        post_amount = float(post_balance.get('uiTokenAmount', {}).get('uiAmount', 0))
+                        pre_amount = float(pre_balance.get('uiTokenAmount', {}).get('uiAmount', 0)) if pre_balance else 0
+                        
+                        # Determine if buy or sell
+                        if post_amount > pre_amount:
+                            # This is a buy
+                            amount = post_amount - pre_amount
+                            tx_type = "buy"
+                        elif post_amount < pre_amount:
+                            # This is a sell
+                            amount = pre_amount - post_amount
+                            tx_type = "sell"
+                        else:
+                            # No change in token amount, skip
+                            continue
+                        
+                        # Estimate price based on SOL change
+                        # NOTE: This is a simplification - real price would require DEX query
+                        sol_change = abs(meta.get('postBalances', [0])[0] - meta.get('preBalances', [0])[0]) / 1_000_000_000  # Convert lamports to SOL
+                        price = sol_change / amount if amount > 0 else 0
+                        
+                        # Add to transactions list
+                        memecoin_transactions.append({
+                            "tx_hash": sig,
+                            "wallet_address": wallet_address,
+                            "token_address": mint,
+                            "token_symbol": SOLANA_MEMECOINS.get(mint, "Unknown"),
+                            "amount": amount,
+                            "price": price,
+                            "timestamp": result.get('blockTime', int(time.time())),
+                            "type": tx_type
+                        })
+                    
+                    # Small delay to avoid rate limiting
+                    await asyncio.sleep(0.1)
+                    
+                except Exception as e:
+                    logger.error(f"Error processing transaction {sig}: {str(e)}")
+                    continue
+            
+            logger.info(f"Found {len(memecoin_transactions)} memecoin transactions for wallet {wallet_address}")
         
-        logger.info(f"Found {len(memecoin_transactions)} memecoin transactions for wallet {wallet_address}")
+        except Exception as e:
+            logger.error(f"Error fetching Solana transactions: {str(e)}")
+            logger.warning(f"Using fallback sample data for wallet {wallet_address}")
         
+        # If no memecoin transactions were found, use sample data
         if not memecoin_transactions:
             logger.warning(f"No memecoin transactions found for wallet {wallet_address}, using sample data")
             # For demo purposes, return sample data when no real transactions are found
