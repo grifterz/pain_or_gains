@@ -14,10 +14,7 @@ from typing import Tuple, Dict, Any, Optional
 sys.path.append("/app/backend")
 
 # Import our Syndica integration
-from external_integrations.syndica_integration import (
-    get_token_name_and_symbol as syndica_get_token_name,
-    get_pump_token_info
-)
+from external_integrations.syndica_integration import get_token_name_and_symbol as syndica_get_token_name
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -32,17 +29,6 @@ BASESCAN_API_KEY = "CQYEHTMRFY24DXPFGIWUYBFYGSYJH1V1EZ"  # Example API key
 # Cache for token info to reduce API calls
 TOKEN_CACHE = {}
 CACHE_TTL = 3600  # 1 hour in seconds
-
-# Fallback token info for specific addresses - only used if API calls fail
-BASE_TOKEN_FALLBACKS = {
-    "0xe1abd004250ac8d1f199421d647e01d094faa180": {"name": "Roost", "symbol": "ROOST"},
-    "0xcaa6d4049e667ffd88457a1733d255eed02996bb": {"name": "Memecoin", "symbol": "MEME"},
-    "0x692c1564c82e6a3509ee189d1b666df9a309b420": {"name": "Based", "symbol": "BASED"},
-    "0xc53fc22033a4bcb15b5405c38e67e378c960ee6b": {"name": "Degen", "symbol": "DEGEN"}
-}
-
-# Get hardcoded pump token info
-SOLANA_TOKEN_FALLBACKS = get_pump_token_info()
 
 def get_solana_token_info(token_address) -> Dict[str, Any]:
     """
@@ -100,24 +86,20 @@ def get_solana_token_info(token_address) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error fetching Solana token info: {str(e)}")
     
-    # Return fallback or default info
-    if token_address in SOLANA_TOKEN_FALLBACKS:
-        token_info = SOLANA_TOKEN_FALLBACKS[token_address]
-        logger.info(f"Using hardcoded fallback for {token_address}: {token_info}")
-    else:
-        token_info = {
-            "name": token_address[:10] + "...",
-            "symbol": token_address[:6],
-            "decimals": 9
-        }
+    # Return default info
+    default_info = {
+        "name": token_address[:10] + "...",
+        "symbol": token_address[:6],
+        "decimals": 9
+    }
     
     # Cache the default result
     TOKEN_CACHE[cache_key] = {
-        'data': token_info,
+        'data': default_info,
         'timestamp': now
     }
     
-    return token_info
+    return default_info
 
 def get_base_token_info(token_address) -> Dict[str, Any]:
     """
@@ -176,15 +158,12 @@ def get_base_token_info(token_address) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error fetching Base token info: {str(e)}")
     
-    # Return fallback if available, otherwise use token address
-    if token_address in BASE_TOKEN_FALLBACKS:
-        result = BASE_TOKEN_FALLBACKS[token_address]
-    else:
-        result = {
-            "name": token_address[:10] + "...",
-            "symbol": token_address[2:8],
-            "decimals": 18
-        }
+    # Default fallback - use token address
+    result = {
+        "name": token_address[:10] + "...",
+        "symbol": token_address[2:8],
+        "decimals": 18
+    }
     
     # Cache the result
     TOKEN_CACHE[cache_key] = {
@@ -200,28 +179,22 @@ def get_token_name(token_address, blockchain) -> Tuple[str, str]:
     """
     try:
         if blockchain.lower() == "solana":
-            # First check for hardcoded fallbacks for known tokens
-            if token_address in SOLANA_TOKEN_FALLBACKS:
-                logger.info(f"Using hardcoded token info for {token_address}")
-                token_info = SOLANA_TOKEN_FALLBACKS[token_address]
-                return token_info["name"], token_info["symbol"]
-                
-            # Next try Syndica RPC API for Solana tokens
+            # Try Syndica integration first (which now prioritizes Solscan scraping)
             try:
-                logger.info(f"Trying Syndica RPC for token {token_address}")
+                logger.info(f"Getting token info for {token_address} via Syndica integration")
                 name, symbol = syndica_get_token_name(token_address)
-                logger.info(f"Syndica returned name={name}, symbol={symbol} for {token_address}")
+                logger.info(f"Got name={name}, symbol={symbol} for {token_address}")
                 
                 # If both name and symbol are available and not fallbacks, return them
                 if name and symbol and name != token_address[:10] + "..." and symbol != token_address[:6]:
                     return name, symbol
                 else:
-                    logger.warning(f"Syndica returned fallbacks for token {token_address}")
+                    logger.warning(f"Syndica integration returned fallbacks for token {token_address}")
             except Exception as e:
-                logger.error(f"Error using Syndica for token {token_address}: {str(e)}")
+                logger.error(f"Error using Syndica integration for token {token_address}: {str(e)}")
             
-            # If Syndica fails, fall back to Solscan
-            logger.info(f"Falling back to Solscan for token {token_address}")
+            # If Syndica integration fails, fall back to direct Solscan API
+            logger.info(f"Falling back to Solscan API for token {token_address}")
             token_info = get_solana_token_info(token_address)
             return token_info["name"], token_info["symbol"]
         
