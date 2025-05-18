@@ -74,10 +74,11 @@ const Search = ({ onSearch }) => {
                           response.data.best_multiplier_token || 
                           response.data.worst_trade_token;
       
+      
       if (hasRealData) {
         toast.success("Analysis complete!");
       } else {
-        toast.warning("No memecoin transactions found for this wallet");
+        toast.error("No memecoin transactions found for this wallet");
       }
       
       onSearch(response.data);
