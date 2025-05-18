@@ -14,6 +14,7 @@ import base58
 import requests
 import json
 from solana.rpc.api import Client as SolanaClient
+from solana.publickey import PublicKey
 from web3 import Web3
 import asyncio
 
