@@ -705,6 +705,14 @@ async def analyze_wallet(search_query: SearchQuery) -> TradeStats:
         else:
             transactions = await get_base_transactions(wallet_address)
         
+        # If no transactions were found, return empty stats
+        if not transactions:
+            logger.info(f"No memecoin transactions found for {blockchain} wallet: {wallet_address}")
+            return TradeStats(
+                wallet_address=wallet_address,
+                blockchain=blockchain
+            )
+        
         # Analyze trades to calculate statistics
         stats = await analyze_memecoin_trades(transactions)
         
@@ -715,8 +723,15 @@ async def analyze_wallet(search_query: SearchQuery) -> TradeStats:
             **stats
         )
         
-        # Save to database
-        await db.trade_stats.insert_one(trade_stats.dict())
+        # Only save to database if we found meaningful stats
+        if (trade_stats.best_trade_token or 
+            trade_stats.best_multiplier_token or 
+            trade_stats.worst_trade_token or 
+            abs(trade_stats.all_time_pnl) > 0.000001):
+            await db.trade_stats.insert_one(trade_stats.dict())
+            logger.info(f"Saved analytics for {blockchain} wallet: {wallet_address}")
+        else:
+            logger.info(f"No meaningful stats to save for {blockchain} wallet: {wallet_address}")
         
         logger.info(f"Analysis complete for {blockchain} wallet: {wallet_address}")
         return trade_stats
