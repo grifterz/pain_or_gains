@@ -367,7 +367,7 @@ const Leaderboard = () => {
                     <td>#{entry.rank}</td>
                     <td>{entry.wallet_address.slice(0, 6)}...{entry.wallet_address.slice(-4)}</td>
                     <td className={statType === "worst_trade" ? "negative" : ""}>{formatValue(entry)}</td>
-                    <td>{entry.token || "N/A"}</td>
+                    <td className="token-name"><strong>{entry.token || "N/A"}</strong></td>
                   </tr>
                 ))
               )}
