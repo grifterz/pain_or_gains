@@ -244,15 +244,51 @@ def get_token_name(token_address, blockchain) -> Tuple[str, str]:
     # For known token addresses, return fallback data directly to avoid async issues
     if blockchain.lower() == "solana" and token_address in SOLANA_TOKEN_FALLBACKS:
         info = SOLANA_TOKEN_FALLBACKS[token_address]
+        
+        # For this specific token, try to make a request to Solscan manually
+        if token_address == "5HyZiyaSsQt8VZBAJcULZhtykiVmkAkWLiQJCER9pump":
+            try:
+                # Try direct API call
+                import requests
+                url = f"{SOLSCAN_API}/token/meta?tokenAddress={token_address}"
+                headers = {"accept": "application/json"}
+                response = requests.get(url, headers=headers)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get("name") or data.get("symbol"):
+                        name = data.get("name", "")
+                        symbol = data.get("symbol", "")
+                        logger.info(f"API lookup for {token_address}: name={name}, symbol={symbol}")
+                        return name if name else symbol, symbol if symbol else name
+                
+                # If API call fails, try scraping the website
+                scrape_url = f"https://solscan.io/token/{token_address}"
+                scrape_response = requests.get(scrape_url)
+                
+                if scrape_response.status_code == 200:
+                    html = scrape_response.text
+                    import re
+                    # Extract token info from HTML title
+                    match = re.search(r'<title>(.*?) \((\w+)\)', html)
+                    if match:
+                        name = match.group(1)
+                        symbol = match.group(2)
+                        logger.info(f"Scraped token info: name={name}, symbol={symbol}")
+                        return name, symbol
+                        
+                # If all else fails, log what we found
+                logger.info(f"HTML response for {token_address}: {scrape_response.text[:1000]}")
+                
+            except Exception as e:
+                logger.error(f"Error looking up token: {str(e)}")
+                # Continue to return the fallback
+        
         return info["name"], info["symbol"]
     elif blockchain.lower() == "base" and token_address.lower() in BASE_TOKEN_FALLBACKS:
         info = BASE_TOKEN_FALLBACKS[token_address.lower()]
         return info["name"], info["symbol"]
     
-    # For the specific token requested by the user
-    if token_address == "56UtHy4oBGeLNEenvvXJhhAwDwhNc2bbZgAPUZaFpump":
-        return "Punk Floor", "PUNKFLOOR"
-        
     # For unknown tokens, return a formatted version of the address
     if blockchain.lower() == "solana":
         return token_address[:10] + "...", token_address[:6]
