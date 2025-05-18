@@ -13,8 +13,8 @@ from typing import Tuple, Dict, Any, Optional
 # Add the backend directory to the path for imports
 sys.path.append("/app/backend")
 
-# Import our Syndica integration
-from external_integrations.syndica_integration import get_token_name_and_symbol as syndica_get_token_name
+# Import our Solana RPC integration
+from external_integrations.solana_rpc import get_token_name_and_symbol as solana_rpc_get_token_name
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -179,21 +179,19 @@ def get_token_name(token_address, blockchain) -> Tuple[str, str]:
     """
     try:
         if blockchain.lower() == "solana":
-            # Try Syndica integration first (which now prioritizes Solscan scraping)
+            # Use direct Solana RPC integration
             try:
-                logger.info(f"Getting token info for {token_address} via Syndica integration")
-                name, symbol = syndica_get_token_name(token_address)
+                logger.info(f"Getting token info for {token_address} via Solana RPC")
+                name, symbol = solana_rpc_get_token_name(token_address)
                 logger.info(f"Got name={name}, symbol={symbol} for {token_address}")
                 
                 # If both name and symbol are available and not fallbacks, return them
-                if name and symbol and name != token_address[:10] + "..." and symbol != token_address[:6]:
+                if name and symbol:
                     return name, symbol
-                else:
-                    logger.warning(f"Syndica integration returned fallbacks for token {token_address}")
             except Exception as e:
-                logger.error(f"Error using Syndica integration for token {token_address}: {str(e)}")
+                logger.error(f"Error using Solana RPC for token {token_address}: {str(e)}")
             
-            # If Syndica integration fails, fall back to direct Solscan API
+            # If Solana RPC fails, fall back to Solscan API
             logger.info(f"Falling back to Solscan API for token {token_address}")
             token_info = get_solana_token_info(token_address)
             return token_info["name"], token_info["symbol"]
