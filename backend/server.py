@@ -66,14 +66,20 @@ except Exception as e:
 # Known memecoin token addresses (comprehensive list for production use)
 SOLANA_MEMECOINS = {
     "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263": "BONK",
-    "5jFnsfx36DyGk8uVGrbXnVUMTsBkPXGpx6e69BiGFzko": "CATO",
+    "5jFnsfx36DyGk8uVGrbXnVUMTsBkPXGpx6e69BiGFzko": "CATO", 
     "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU": "SAMO",
     "5tN42n9vMi6ubp67Uy4NnmM5DMZYN8aS8GeB3bEDHr6E": "WIF",
     "E6Z6vM4T517qn2iW88pYKQQn5oTuT88VdcGLHpU8mdmg": "BOOK",
     "FZjS5m4XfTxJ8BRkhfKjVD6J5hge7o4XzFiHrYJxnpzm": "NEKO",
     "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R": "RAY",
     "bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1": "COPE",
-    "7Q2afV64in6N6SeZsyMtYD4MN8SwYhpJdFVLZoYM4VfdRP7tWn": "SHIBARIUM"
+    "kinXdEcpDQeHPEuQnqmUgtYykqKGVFq6CeVX5iAHJq6": "KIN",
+    "HAWy8kV3bD4gHn3hTcRRKVPqpLwLrQpLPwAc6mQRmMUJ": "DAWG",
+    "8ju6CLitLV5Xrczu5E58X8ZghQUcG55PZ3XHTi3bx94V": "44",
+    "7rAAnrG1cg9nFnbKfEbA9jKJpA4CQRXUUYbYzYgQNNS4": "POPCAT",
+    "G5KoZJKUgrnGEwtKS7UNJg7XTTBpuNGdH4QDJJdVngbu": "KITTY",
+    "6QuXb6mB6WmRASWV2WSh9zL4jJvFEGeFnWJ8UKPGnLvi": "APT",
+    "5V7ix9mbXANQYz4dSvQzgJhb1SwbTzkVNfCWJXJEzkbY": "STRK"
 }
 
 BASE_MEMECOINS = {
