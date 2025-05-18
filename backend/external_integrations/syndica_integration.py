@@ -7,6 +7,8 @@ import logging
 import json
 import os
 import time
+import re
+import base58
 from typing import Dict, Any, Optional, Tuple
 
 # Configure logging
@@ -133,6 +135,79 @@ def get_token_info(token_address: str) -> Optional[Dict[str, Any]]:
     
     return None
 
+def get_metadata_from_solscan(token_address: str) -> Optional[Dict[str, Any]]:
+    """
+    Fallback: Get token metadata by scraping Solscan website
+    """
+    try:
+        # Check cache first
+        cache_key = f"solscan_scrape:{token_address}"
+        now = time.time()
+        if cache_key in TOKEN_CACHE and (now - TOKEN_CACHE[cache_key]['timestamp'] < CACHE_TTL):
+            logger.info(f"Using cached Solscan scrape data for {token_address}")
+            return TOKEN_CACHE[cache_key]['data']
+            
+        logger.info(f"Attempting to scrape token metadata from Solscan for {token_address}")
+        url = f"https://solscan.io/token/{token_address}"
+        response = requests.get(url, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        })
+        
+        if response.status_code == 200:
+            # Extract token name and symbol from HTML
+            html = response.text
+            
+            # Look for token name in title
+            title_match = re.search(r'<title>(.*?)\s*\(([^)]+)\)\s*\|', html)
+            if title_match:
+                name = title_match.group(1).strip()
+                symbol = title_match.group(2).strip()
+                logger.info(f"Extracted from title: name={name}, symbol={symbol}")
+                
+                if name and symbol:
+                    metadata = {
+                        "name": name,
+                        "symbol": symbol
+                    }
+                    
+                    # Cache the result
+                    TOKEN_CACHE[cache_key] = {
+                        'data': metadata,
+                        'timestamp': now
+                    }
+                    
+                    return metadata
+            
+            # Try alternate pattern looking for token info sections
+            token_info_match = re.search(r'<div[^>]*class="token-info"[^>]*>.*?<div[^>]*class="token-name"[^>]*>(.*?)<\/div>.*?<div[^>]*class="token-symbol"[^>]*>(.*?)<\/div>', html, re.DOTALL)
+            if token_info_match:
+                name = re.sub(r'<[^>]*>', '', token_info_match.group(1)).strip()
+                symbol = re.sub(r'<[^>]*>', '', token_info_match.group(2)).strip()
+                logger.info(f"Extracted from token info section: name={name}, symbol={symbol}")
+                
+                if name and symbol:
+                    metadata = {
+                        "name": name,
+                        "symbol": symbol
+                    }
+                    
+                    # Cache the result
+                    TOKEN_CACHE[cache_key] = {
+                        'data': metadata,
+                        'timestamp': now
+                    }
+                    
+                    return metadata
+            
+            logger.warning("Could not extract token name and symbol from Solscan HTML")
+        else:
+            logger.warning(f"Solscan scraping failed with status code {response.status_code}")
+    
+    except Exception as e:
+        logger.error(f"Error scraping Solscan for token {token_address}: {str(e)}")
+    
+    return None
+
 def get_token_metadata(token_address: str) -> Optional[Dict[str, Any]]:
     """
     Get token metadata using Metaplex metadata program via Syndica
@@ -153,7 +228,7 @@ def get_token_metadata(token_address: str) -> Optional[Dict[str, Any]]:
         # Metaplex metadata program ID
         metadata_program_id = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
         
-        # Try to get metadata account
+        # Find associated PDA for the token
         payload = {
             "jsonrpc": "2.0",
             "id": 1,
@@ -243,18 +318,24 @@ def get_token_metadata(token_address: str) -> Optional[Dict[str, Any]]:
 
 def get_token_name_and_symbol(token_address: str) -> Tuple[str, str]:
     """
-    Get token name and symbol using Syndica RPC
+    Get token name and symbol using multiple methods
     Returns a tuple of (name, symbol)
     """
-    logger.info(f"Getting token name and symbol for {token_address} using Syndica")
+    logger.info(f"Getting token name and symbol for {token_address}")
     
-    # First try to get metadata (includes name and symbol)
+    # 1. First try Metaplex metadata through Syndica
     metadata = get_token_metadata(token_address)
     if metadata and metadata.get("name") and metadata.get("symbol"):
-        logger.info(f"Found token metadata: {metadata}")
+        logger.info(f"Found token metadata via Syndica: {metadata}")
         return metadata["name"], metadata["symbol"]
     
-    # If metadata is not available, try to get basic token info
+    # 2. Try scraping Solscan as a fallback
+    solscan_metadata = get_metadata_from_solscan(token_address)
+    if solscan_metadata and solscan_metadata.get("name") and solscan_metadata.get("symbol"):
+        logger.info(f"Found token metadata via Solscan scraping: {solscan_metadata}")
+        return solscan_metadata["name"], solscan_metadata["symbol"]
+    
+    # 3. If metadata is not available, try to get basic token info
     token_info = get_token_info(token_address)
     if token_info:
         logger.info(f"Found basic token info: {token_info}")
@@ -264,6 +345,17 @@ def get_token_name_and_symbol(token_address: str) -> Tuple[str, str]:
     # Default fallback
     logger.warning(f"Could not get token info for {token_address}")
     return token_address[:10] + "...", token_address[:6]
+
+def get_pump_token_info():
+    """
+    Hardcoded info for common pump tokens
+    """
+    return {
+        "5HyZiyaSsQt8VZBAJcULZhtykiVmkAkWLiQJCER9pump": {"name": "Pump Vault v1", "symbol": "pVault"},
+        "FHRQk2cYczCo4t6GhEHaKS6WSHXYcAhs7i4V6yWppump": {"name": "PUMP Token", "symbol": "PUMP"},
+        "3yCDp1E5yzA1qoNQuDjNr5iXyj1CSHjf3dktHpnypump": {"name": "Genesis Pump", "symbol": "gPUMP"},
+        "56UtHy4oBGeLNEenvvXJhhAwDwhNc2bbZgAPUZaFpump": {"name": "Pump Detector", "symbol": "DETECTOR"}
+    }
 
 # Test function
 if __name__ == "__main__":
