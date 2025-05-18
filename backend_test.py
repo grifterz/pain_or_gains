@@ -215,12 +215,43 @@ class MemeAnalyzerTester:
 
     def test_leaderboard(self, stat_type, blockchain):
         """Test getting leaderboard data"""
-        return self.run_test(
+        success, response = self.run_test(
             f"Leaderboard ({blockchain} - {stat_type})",
             "GET",
             f"leaderboard/{stat_type}?blockchain={blockchain}",
             200
         )
+        
+        # Check if leaderboard entries have proper token names instead of address fragments
+        if success and len(response) > 0:
+            print(f"\nChecking token names in {blockchain} leaderboard for {stat_type}:")
+            
+            # Skip all_time_pnl as it doesn't have token names
+            if stat_type != "all_time_pnl":
+                has_proper_names = True
+                for entry in response:
+                    token = entry.get("token", "")
+                    
+                    # Check if token is a proper name and not an address fragment
+                    if token and len(token) > 0:
+                        # Address fragments typically start with 0x or are 6 characters of hex
+                        is_address_fragment = token.startswith("0x") or (len(token) <= 6 and all(c in "0123456789abcdefABCDEF" for c in token))
+                        
+                        if is_address_fragment:
+                            print(f"❌ Found address fragment as token name: {token}")
+                            has_proper_names = False
+                        else:
+                            print(f"✅ Found proper token name: {token}")
+                
+                if has_proper_names:
+                    print(f"✅ All tokens in {blockchain} {stat_type} leaderboard have proper names")
+                    self.tests_passed += 1
+                else:
+                    print(f"❌ Some tokens in {blockchain} {stat_type} leaderboard still use address fragments")
+                
+                self.tests_run += 1
+        
+        return success, response
 
 def main():
     # Setup
