@@ -1,82 +1,81 @@
-from fastapi import FastAPI, APIRouter, HTTPException
-from dotenv import load_dotenv
-from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
-import os
-import logging
-from pathlib import Path
-from pydantic import BaseModel, Field, validator
+from fastapi import FastAPI, HTTPException, Depends, Query
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, validator
 from typing import List, Dict, Any, Optional
-import uuid
-from datetime import datetime
-import re
-import base58
-import requests
+from motor.motor_asyncio import AsyncIOMotorClient
+from bson.objectid import ObjectId
+import logging
 import json
-import base64
-import asyncio
-import time
-from web3 import Web3
-
-# Load environment variables
-ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
-
-# MongoDB connection
-mongo_url = os.environ.get('MONGO_URL')
-db_name = os.environ.get('DB_NAME', 'memecoin_stats')
-client = AsyncIOMotorClient(mongo_url)
-db = client[db_name]
-
-# Create the main app without a prefix
-app = FastAPI()
-
-# Create a router with the /api prefix
-api_router = APIRouter(prefix="/api")
+import os
+import re
+import uuid
+import requests
+import random
+from datetime import datetime
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Get API keys from environment
-QUICKNODE_API_KEY = os.environ.get('QUICKNODE_API_KEY')
-ALCHEMY_API_KEY = os.environ.get('ALCHEMY_API_KEY')
-SOLANA_API_KEY = os.environ.get('SOLANA_API_KEY')
+# Environment variables
+MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
+SOLANA_RPC_URL = os.environ.get("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")
+ALCHEMY_API_KEY = os.environ.get("ALCHEMY_API_KEY", "0Ik6_-2dWBj1BCXGcJNY5LFJrYVJ0OMf")
 
-# Define blockchain RPC URLs with API keys
-SOLANA_RPC_URL = "https://api.mainnet-beta.solana.com"  # Fallback to the public endpoint
-if SOLANA_API_KEY:
-    # We'll stick with the public endpoint as the API key format was not working
-    logger.info("Using public Solana RPC endpoint")
+# Initialize FastAPI app
+app = FastAPI()
+api_router = FastAPI(prefix="/api")
 
-BASE_RPC_URL = "https://mainnet.base.org"
-if ALCHEMY_API_KEY:
-    BASE_RPC_URL = f"https://base-mainnet.g.alchemy.com/v2/{ALCHEMY_API_KEY}"
+# Add CORS middleware
+api_router.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-# Initialize blockchain clients
-try:
-    base_w3 = Web3(Web3.HTTPProvider(BASE_RPC_URL))
-    logger.info(f"Initialized blockchain clients")
-except Exception as e:
-    logger.error(f"Error initializing blockchain clients: {str(e)}")
+# MongoDB connection
+client = AsyncIOMotorClient(MONGO_URL)
+db = client["memecoin_analyzer"]
+collection = db["wallet_analyses"]
 
-# Known memecoin token addresses (comprehensive list for production use)
+# Define schemas
+class SearchQuery(BaseModel):
+    wallet_address: str
+    blockchain: str
+    
+    @validator('blockchain')
+    def blockchain_must_be_valid(cls, v):
+        if v.lower() not in ["solana", "base"]:
+            raise ValueError("Blockchain must be 'solana' or 'base'")
+        return v.lower()
+
+class TradeStats(BaseModel):
+    id: str
+    wallet_address: str
+    blockchain: str
+    best_trade_profit: float
+    best_trade_token: str = ""
+    best_multiplier: float
+    best_multiplier_token: str = ""
+    all_time_pnl: float
+    worst_trade_loss: float
+    worst_trade_token: str = ""
+    timestamp: datetime
+
+# List of known memecoin token addresses
 SOLANA_MEMECOINS = {
-    "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263": "BONK",
-    "5jFnsfx36DyGk8uVGrbXnVUMTsBkPXGpx6e69BiGFzko": "CATO", 
+    "PepeprgSXVQffuVRXPzXVp6XgvtQQjura2oYAxgogSxs": "PEPE",
+    "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R": "BONG",
+    "BLwTwYLRXCRKaorRHgbWifc4CqUSyyWjNW1tNEEpkJeZ": "BONK",
+    "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263": "MOUSE",
+    "9nEqaUcb16sQ3Tn1psbkWqyhPdLmfHWjKGymREjsAgqU": "WIFHAT",
+    "metaL4hvSzTCfRNsm8E1DVMWBEL22EEa4vtFQ7GJr45": "META",
     "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU": "SAMO",
-    "5tN42n9vMi6ubp67Uy4NnmM5DMZYN8aS8GeB3bEDHr6E": "WIF",
-    "E6Z6vM4T517qn2iW88pYKQQn5oTuT88VdcGLHpU8mdmg": "BOOK",
-    "FZjS5m4XfTxJ8BRkhfKjVD6J5hge7o4XzFiHrYJxnpzm": "NEKO",
-    "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R": "RAY",
-    "bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1": "COPE",
-    "kinXdEcpDQeHPEuQnqmUgtYykqKGVFq6CeVX5iAHJq6": "KIN",
-    "HAWy8kV3bD4gHn3hTcRRKVPqpLwLrQpLPwAc6mQRmMUJ": "DAWG",
-    "8ju6CLitLV5Xrczu5E58X8ZghQUcG55PZ3XHTi3bx94V": "44",
-    "7rAAnrG1cg9nFnbKfEbA9jKJpA4CQRXUUYbYzYgQNNS4": "POPCAT",
+    "8s9FCz99Wcr3dHpiYFYcmmZFVW4sz8PJAqE7rrJVZnLM": "ICE",
+    "2HeykdKjzHKGm2LKHw8pDYwjKPiFEoXAz74dirhUgQvq": "SAO",
+    "9zBS7WZHRm6ECpP26o916v1D98Viwi8f8pHcWaakQ2XT": "CT",
     "G5KoZJKUgrnGEwtKS7UNJg7XTTBpuNGdH4QDJJdVngbu": "KITTY",
     "6QuXb6mB6WmRASWV2WSh9zL4jJvFEGeFnWJ8UKPGnLvi": "APT",
     "5V7ix9mbXANQYz4dSvQzgJhb1SwbTzkVNfCWJXJEzkbY": "STRK"
@@ -108,80 +107,20 @@ BASE_MEMECOINS = {
 def is_valid_solana_address(address: str) -> bool:
     try:
         # Solana addresses must be 32-44 bytes long in base58 encoding
-        if len(address) < 32 or len(address) > 44:
-            return False
-            
-        # Only allow base58 characters
-        if not re.match(r'^[1-9A-HJ-NP-Za-km-z]+$', address):
-            return False
-            
-        # Try to decode the address
-        try:
-            base58.b58decode(address)
-            return True
-        except:
-            return False
-    except Exception:
+        return bool(re.match(r'^[1-9A-HJ-NP-Za-km-z]{32,44}$', address))
+    except:
         return False
 
 def is_valid_eth_address(address: str) -> bool:
-    if not address.startswith('0x'):
+    try:
+        # Ethereum addresses must be 42 characters long (0x + 40 hex characters)
+        return bool(re.match(r'^0x[a-fA-F0-9]{40}$', address))
+    except:
         return False
-    return bool(re.match(r'^0x[a-fA-F0-9]{40}$', address))
 
-# Define Models
-class SearchQuery(BaseModel):
-    wallet_address: str
-    blockchain: str  # "solana" or "base"
-    
-    @validator('blockchain')
-    def validate_blockchain(cls, v):
-        if v.lower() not in ['solana', 'base']:
-            raise ValueError("Blockchain must be 'solana' or 'base'")
-        return v.lower()
-    
-    @validator('wallet_address')
-    def validate_address(cls, v, values):
-        # Only validate if blockchain is provided
-        if 'blockchain' not in values:
-            return v
-            
-        blockchain = values.get('blockchain', 'solana').lower()
-        if blockchain == 'solana':
-            if not is_valid_solana_address(v):
-                raise ValueError("Invalid Solana wallet address")
-        elif blockchain == 'base':
-            if not is_valid_eth_address(v):
-                raise ValueError("Invalid Ethereum/Base wallet address")
-        return v
-
-class Transaction(BaseModel):
-    tx_hash: str
-    wallet_address: str
-    token_address: str
-    token_symbol: str
-    amount: float
-    price: float  # in native token (SOL/ETH)
-    timestamp: int
-    type: str  # "buy" or "sell"
-
-class TradeStats(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    wallet_address: str
-    blockchain: str
-    best_trade_profit: float = 0.0
-    best_trade_token: str = ""
-    best_multiplier: float = 0.0
-    best_multiplier_token: str = ""
-    all_time_pnl: float = 0.0
-    worst_trade_loss: float = 0.0
-    worst_trade_token: str = ""
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
-
-# Helper functions for analyzing blockchain data
 async def get_solana_transactions(wallet_address: str) -> List[Dict[str, Any]]:
     """
-    Get real transaction history for a Solana wallet address using direct API requests
+    Get real transaction history for a Solana wallet address using public RPC API
     """
     try:
         # Validate address
@@ -190,214 +129,152 @@ async def get_solana_transactions(wallet_address: str) -> List[Dict[str, Any]]:
         
         logger.info(f"Fetching real transactions for Solana wallet: {wallet_address}")
         
-        # Special case for test wallet which may not have enough recent memecoin activity
-        # but appears in the leaderboard from past queries
-        if wallet_address == "8kzcTCwWTmsYTkNPbsMiQGE9sBJqXY5X38UHgtQ8cEwN":
-            logger.info("Using known data for test wallet")
-            return [
-                {
-                    "tx_hash": "test-buy-BONK",
-                    "wallet_address": wallet_address,
-                    "token_address": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
-                    "token_symbol": "BONK",
-                    "amount": 1000.0,
-                    "price": 0.000025,
-                    "timestamp": int(datetime.now().timestamp()) - 30 * 24 * 60 * 60,
-                    "type": "buy"
-                },
-                {
-                    "tx_hash": "test-sell-BONK",
-                    "wallet_address": wallet_address,
-                    "token_address": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
-                    "token_symbol": "BONK",
-                    "amount": 1000.0,
-                    "price": 0.000075,
-                    "timestamp": int(datetime.now().timestamp()) - 15 * 24 * 60 * 60,
-                    "type": "sell"
-                },
-                {
-                    "tx_hash": "test-buy-SAMO",
-                    "wallet_address": wallet_address,
-                    "token_address": "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU",
-                    "token_symbol": "SAMO",
-                    "amount": 100.0,
-                    "price": 0.0005,
-                    "timestamp": int(datetime.now().timestamp()) - 40 * 24 * 60 * 60,
-                    "type": "buy"
-                },
-                {
-                    "tx_hash": "test-sell-SAMO",
-                    "wallet_address": wallet_address,
-                    "token_address": "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU",
-                    "token_symbol": "SAMO",
-                    "amount": 100.0,
-                    "price": 0.0003,
-                    "timestamp": int(datetime.now().timestamp()) - 20 * 24 * 60 * 60,
-                    "type": "sell"
-                }
+        # Get token accounts for the wallet
+        token_accounts_payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getTokenAccountsByOwner",
+            "params": [
+                wallet_address,
+                {"programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},
+                {"encoding": "jsonParsed"}
             ]
-            
-        # Use direct HTTP requests to the Solana RPC API
-        headers = {
-            "Content-Type": "application/json"
         }
         
-        memecoin_transactions = []
+        response = requests.post(SOLANA_RPC_URL, json=token_accounts_payload)
+        data = response.json()
         
-        try:
-            # Get transaction signatures for the wallet (most recent first)
-            payload = {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "getSignaturesForAddress",
-                "params": [
-                    wallet_address,
-                    {
-                        "limit": 100  # Increase limit to find more potential memecoin transactions
-                    }
-                ]
-            }
-            
-            logger.info(f"Requesting signatures from Solana RPC: {SOLANA_RPC_URL}")
-            response = requests.post(SOLANA_RPC_URL, headers=headers, json=payload)
-            signatures_data = response.json()
-            
-            if 'error' in signatures_data:
-                logger.error(f"Error from Solana API: {signatures_data['error']}")
-                raise Exception(f"Solana API error: {signatures_data['error']['message'] if 'message' in signatures_data['error'] else str(signatures_data['error'])}")
-            
-            if 'result' not in signatures_data:
-                logger.error(f"Unexpected response format from Solana API: {signatures_data}")
-                raise Exception("Invalid response format from Solana API")
-            
-            signatures = [item['signature'] for item in signatures_data.get('result', [])]
-            logger.info(f"Found {len(signatures)} signatures for wallet {wallet_address}")
-            
-            if not signatures:
-                logger.warning(f"No transactions found for wallet {wallet_address}")
-                # Return empty list - No sample data fallback
-                return []
-            
-            # Process each transaction to identify memecoin transactions
-            for sig in signatures[:30]:  # Limit to 30 transactions to avoid timeout
-                try:
-                    # Get transaction details
-                    tx_payload = {
+        if 'error' in data:
+            logger.error(f"Error from Solana RPC: {data['error']}")
+            return []
+        
+        token_accounts = data.get('result', {}).get('value', [])
+        
+        # Get transaction history for each token account
+        transactions = []
+        for account in token_accounts:
+            try:
+                account_pubkey = account.get('pubkey')
+                mint = account.get('account', {}).get('data', {}).get('parsed', {}).get('info', {}).get('mint')
+                
+                # Get token symbol if it's a known memecoin
+                token_symbol = SOLANA_MEMECOINS.get(mint, "UNKNOWN")
+                
+                if token_symbol == "UNKNOWN":
+                    # Try to get token info from metadata if unknown
+                    try:
+                        token_data_payload = {
+                            "jsonrpc": "2.0",
+                            "id": 1,
+                            "method": "getTokenSupply",
+                            "params": [mint]
+                        }
+                        token_response = requests.post(SOLANA_RPC_URL, json=token_data_payload)
+                        token_data = token_response.json()
+                        if 'result' in token_data:
+                            token_symbol = mint[:6]  # Use first 6 chars of mint as symbol
+                    except Exception as e:
+                        logger.error(f"Error getting token info: {str(e)}")
+                
+                # Get transactions for this token account
+                tx_payload = {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "getSignaturesForAddress",
+                    "params": [
+                        account_pubkey,
+                        {"limit": 100}
+                    ]
+                }
+                
+                tx_response = requests.post(SOLANA_RPC_URL, json=tx_payload)
+                tx_data = tx_response.json()
+                
+                if 'error' in tx_data:
+                    logger.error(f"Error from Solana RPC: {tx_data['error']}")
+                    continue
+                
+                signatures = [item.get('signature') for item in tx_data.get('result', [])]
+                
+                # Get transaction details for each signature
+                for signature in signatures:
+                    tx_detail_payload = {
                         "jsonrpc": "2.0",
                         "id": 1,
                         "method": "getTransaction",
                         "params": [
-                            sig,
-                            {
-                                "encoding": "json",
-                                "maxSupportedTransactionVersion": 0
-                            }
+                            signature,
+                            {"encoding": "jsonParsed"}
                         ]
                     }
                     
-                    tx_response = requests.post(SOLANA_RPC_URL, headers=headers, json=tx_payload)
-                    tx_data = tx_response.json()
+                    tx_detail_response = requests.post(SOLANA_RPC_URL, json=tx_detail_payload)
+                    tx_detail = tx_detail_response.json()
                     
-                    if 'error' in tx_data or not tx_data.get('result'):
-                        logger.warning(f"Error or no result for transaction {sig}: {tx_data.get('error', 'No result')}")
+                    if 'error' in tx_detail:
+                        logger.error(f"Error from Solana RPC: {tx_detail['error']}")
                         continue
                     
-                    result = tx_data.get('result', {})
-                    meta = result.get('meta', {})
+                    tx_result = tx_detail.get('result', {})
                     
-                    # Skip failed transactions
-                    if meta.get('err'):
-                        continue
+                    # Attempt to determine if this is a buy or sell
+                    tx_type = "unknown"
+                    price = 0.0
+                    amount = 0.0
                     
-                    # Get token balances before and after
-                    pre_token_balances = meta.get('preTokenBalances', [])
-                    post_token_balances = meta.get('postTokenBalances', [])
+                    # Parse transaction to determine type and details
+                    # This is simplified and would need more complex logic for accuracy
+                    try:
+                        pre_token_balance = tx_result.get('meta', {}).get('preTokenBalances', [])
+                        post_token_balance = tx_result.get('meta', {}).get('postTokenBalances', [])
+                        
+                        if pre_token_balance and post_token_balance:
+                            # Try to identify if token balance increased (buy) or decreased (sell)
+                            for post_bal in post_token_balance:
+                                if post_bal.get('mint') == mint:
+                                    post_amount = int(post_bal.get('uiTokenAmount', {}).get('amount', 0))
+                                    
+                                    # Find matching pre-balance
+                                    pre_amount = 0
+                                    for pre_bal in pre_token_balance:
+                                        if pre_bal.get('mint') == mint:
+                                            pre_amount = int(pre_bal.get('uiTokenAmount', {}).get('amount', 0))
+                                    
+                                    # Determine type based on balance change
+                                    if post_amount > pre_amount:
+                                        tx_type = "buy"
+                                        amount = (post_amount - pre_amount) / 10**9  # Convert from lamports
+                                        # Estimated price based on SOL transfer
+                                        sol_change = tx_result.get('meta', {}).get('postBalances', [0])[0] - tx_result.get('meta', {}).get('preBalances', [0])[0]
+                                        if sol_change != 0:
+                                            price = abs(sol_change / 10**9) / amount
+                                    elif post_amount < pre_amount:
+                                        tx_type = "sell"
+                                        amount = (pre_amount - post_amount) / 10**9  # Convert from lamports
+                                        # Estimated price based on SOL transfer
+                                        sol_change = tx_result.get('meta', {}).get('postBalances', [0])[0] - tx_result.get('meta', {}).get('preBalances', [0])[0]
+                                        if sol_change != 0:
+                                            price = abs(sol_change / 10**9) / amount
+                    except Exception as e:
+                        logger.error(f"Error parsing transaction: {str(e)}")
                     
-                    # Skip if no token activity
-                    if not pre_token_balances and not post_token_balances:
-                        continue
-                    
-                    # Track SOL amount changes to verify if token was actually purchased/sold
-                    # SOL balances are in the first element as lamports (1 SOL = 1 billion lamports)
-                    pre_sol_balance = meta.get('preBalances', [0])[0] / 1_000_000_000
-                    post_sol_balance = meta.get('postBalances', [0])[0] / 1_000_000_000
-                    sol_change = post_sol_balance - pre_sol_balance
-                    
-                    # Check for memecoin transfers
-                    for post_balance in post_token_balances:
-                        mint = post_balance.get('mint')
-                        owner = post_balance.get('owner')
-                        
-                        # Skip if not a known memecoin or not owned by the wallet
-                        if mint not in SOLANA_MEMECOINS or owner != wallet_address:
-                            continue
-                        
-                        # Find matching pre-balance
-                        pre_balance = next((b for b in pre_token_balances if b.get('mint') == mint and b.get('owner') == owner), None)
-                        
-                        post_amount = float(post_balance.get('uiTokenAmount', {}).get('uiAmount', 0))
-                        pre_amount = float(pre_balance.get('uiTokenAmount', {}).get('uiAmount', 0)) if pre_balance else 0
-                        
-                        # Calculate token amount change
-                        token_change = post_amount - pre_amount
-                        
-                        # Determine transaction type and filter out airdrops
-                        if token_change > 0:  # Received tokens
-                            # Check if SOL was spent (negative sol_change indicates SOL was spent)
-                            if sol_change < -0.000001:  # Small threshold to account for transaction fees
-                                # This was a purchase - tokens increased, SOL decreased
-                                tx_type = "buy"
-                                amount = token_change
-                                # Estimate price (SOL spent / tokens received)
-                                price = abs(sol_change) / amount
-                            else:
-                                # This was likely an airdrop or gift - received tokens without spending SOL
-                                # Skip this transaction as it's not a trade
-                                continue
-                        elif token_change < 0:  # Sent tokens
-                            # Check if SOL was received (positive sol_change)
-                            if sol_change > 0.000001:
-                                # This was a sale - tokens decreased, SOL increased
-                                tx_type = "sell"
-                                amount = abs(token_change)
-                                # Estimate price (SOL received / tokens sent)
-                                price = sol_change / amount
-                            else:
-                                # This was likely a transfer out - tokens sent without receiving SOL
-                                # Skip this transaction as it's not a trade
-                                continue
-                        else:
-                            # No change in token amount, skip
-                            continue
-                        
-                        # Add to transactions list
-                        memecoin_transactions.append({
-                            "tx_hash": sig,
+                    # Only add if we could determine a clear buy or sell
+                    if tx_type in ["buy", "sell"] and price > 0 and amount > 0:
+                        transactions.append({
+                            "tx_hash": signature,
                             "wallet_address": wallet_address,
                             "token_address": mint,
-                            "token_symbol": SOLANA_MEMECOINS.get(mint, "Unknown"),
+                            "token_symbol": token_symbol,
                             "amount": amount,
                             "price": price,
-                            "timestamp": result.get('blockTime', int(time.time())),
+                            "timestamp": tx_result.get('blockTime', 0),
                             "type": tx_type
                         })
-                    
-                    # Small delay to avoid rate limiting
-                    await asyncio.sleep(0.1)
-                    
-                except Exception as e:
-                    logger.error(f"Error processing transaction {sig}: {str(e)}")
-                    continue
-            
-            logger.info(f"Found {len(memecoin_transactions)} memecoin transactions for wallet {wallet_address}")
-            
-            # No sample data fallback - return empty list if no memecoin transactions found
-            return memecoin_transactions
-        
-        except Exception as e:
-            logger.error(f"Error fetching Solana transactions: {str(e)}")
-            # Return empty list - No sample data fallback
-            return []
+            except Exception as e:
+                logger.error(f"Error processing token account: {str(e)}")
+                continue
+                
+        return transactions
         
     except Exception as e:
         logger.error(f"Error getting Solana transactions: {str(e)}")
@@ -415,73 +292,6 @@ async def get_base_transactions(wallet_address: str) -> List[Dict[str, Any]]:
         
         logger.info(f"Fetching real transactions for Base wallet: {wallet_address}")
         
-        # Special case for the user's wallet
-        wallet_address_lower = wallet_address.lower()
-        if wallet_address_lower == "0x671b746d2c5a34609cce723cbf8f475639bc0fa2":
-            logger.info("Using guaranteed data for known user wallet")
-            return [
-                {
-                    "tx_hash": "0xuser_buy_pepe_1",
-                    "wallet_address": wallet_address,
-                    "token_address": "0xa5dE5E930E920331A710d3E647aC262e8A2F2F9d",
-                    "token_symbol": "PEPE",
-                    "amount": 10000000.0,
-                    "price": 0.0000001,
-                    "timestamp": int(datetime.now().timestamp()) - 90 * 24 * 60 * 60,
-                    "type": "buy"
-                },
-                {
-                    "tx_hash": "0xuser_sell_pepe_1",
-                    "wallet_address": wallet_address,
-                    "token_address": "0xa5dE5E930E920331A710d3E647aC262e8A2F2F9d",
-                    "token_symbol": "PEPE",
-                    "amount": 5000000.0,
-                    "price": 0.0000003,
-                    "timestamp": int(datetime.now().timestamp()) - 60 * 24 * 60 * 60,
-                    "type": "sell"
-                },
-                {
-                    "tx_hash": "0xuser_buy_brett_1",
-                    "wallet_address": wallet_address,
-                    "token_address": "0xd5046B976188EB40f6DE40fB527F89c05b323385",
-                    "token_symbol": "BRETT",
-                    "amount": 5000.0,
-                    "price": 0.0005,
-                    "timestamp": int(datetime.now().timestamp()) - 120 * 24 * 60 * 60,
-                    "type": "buy"
-                },
-                {
-                    "tx_hash": "0xuser_sell_brett_1",
-                    "wallet_address": wallet_address,
-                    "token_address": "0xd5046B976188EB40f6DE40fB527F89c05b323385",
-                    "token_symbol": "BRETT",
-                    "amount": 5000.0,
-                    "price": 0.0002,
-                    "timestamp": int(datetime.now().timestamp()) - 100 * 24 * 60 * 60,
-                    "type": "sell"
-                },
-                {
-                    "tx_hash": "0xuser_buy_degen_1",
-                    "wallet_address": wallet_address,
-                    "token_address": "0x4ed4E862860beD51a9570b96d89aF5E1B0Efefed",
-                    "token_symbol": "DEGEN",
-                    "amount": 1000.0,
-                    "price": 0.001,
-                    "timestamp": int(datetime.now().timestamp()) - 150 * 24 * 60 * 60,
-                    "type": "buy"
-                },
-                {
-                    "tx_hash": "0xuser_sell_degen_1",
-                    "wallet_address": wallet_address,
-                    "token_address": "0x4ed4E862860beD51a9570b96d89aF5E1B0Efefed",
-                    "token_symbol": "DEGEN",
-                    "amount": 1000.0,
-                    "price": 0.002,
-                    "timestamp": int(datetime.now().timestamp()) - 140 * 24 * 60 * 60,
-                    "type": "sell"
-                }
-            ]
-            
         if not ALCHEMY_API_KEY:
             logger.error("Alchemy API key not provided")
             return []
@@ -489,82 +299,86 @@ async def get_base_transactions(wallet_address: str) -> List[Dict[str, Any]]:
         # Using Alchemy API for Base blockchain
         alchemy_url = f"https://base-mainnet.g.alchemy.com/v2/{ALCHEMY_API_KEY}"
         
-        memecoin_transactions = []
+        # Get token balances for the wallet
+        token_payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "alchemy_getTokenBalances",
+            "params": [wallet_address, "erc20"]
+        }
         
-        try:
-            # Get token balances to identify which memecoins the wallet interacted with
-            token_payload = {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "alchemy_getTokenBalances",
-                "params": [wallet_address, "erc20"]
-            }
+        token_response = requests.post(alchemy_url, json=token_payload)
+        token_data = token_response.json()
+        
+        if 'error' in token_data:
+            logger.error(f"Error from Alchemy API: {token_data['error']}")
+            return []
+        
+        token_addresses = []
+        for balance in token_data.get('result', {}).get('tokenBalances', []):
+            token_addresses.append(balance.get('contractAddress'))
+        
+        # Process all tokens, not just memecoins
+        all_transactions = []
+        
+        # Get transfers for each token
+        for token_address in token_addresses:
+            token_symbol = BASE_MEMECOINS.get(token_address, "UNKNOWN")
             
-            token_response = requests.post(alchemy_url, json=token_payload)
-            token_data = token_response.json()
-            
-            if 'error' in token_data:
-                logger.error(f"Error from Alchemy API: {token_data['error']}")
-                return []
-            
-            token_addresses = []
-            for balance in token_data.get('result', {}).get('tokenBalances', []):
-                token_addresses.append(balance.get('contractAddress'))
-            
-            # Add known memecoins even if not in current balance
-            for address in BASE_MEMECOINS.keys():
-                if address not in token_addresses:
-                    token_addresses.append(address)
-            
-            # Get transfers for each token
-            for token_address in token_addresses:
-                # Skip if not a known memecoin
-                if token_address not in BASE_MEMECOINS:
-                    continue
-                
-                # Get transfers for this token
-                transfers_payload = {
+            # Get token symbol if unknown
+            if token_symbol == "UNKNOWN":
+                # Try to get token info using Alchemy's getTokenMetadata
+                token_meta_payload = {
                     "jsonrpc": "2.0",
                     "id": 1,
-                    "method": "alchemy_getAssetTransfers",
-                    "params": [
-                        {
-                            "fromBlock": "0x0",  # From genesis block (all history)
-                            "toBlock": "latest",
-                            "category": ["erc20"],
-                            "contractAddresses": [token_address],
-                            "withMetadata": True,
-                            "excludeZeroValue": True,
-                            "maxCount": "0x64",  # Increase to 100 transfers (0x64 = 100 in hex)
-                            "order": "desc"  # Most recent first
-                        }
-                    ]
+                    "method": "alchemy_getTokenMetadata",
+                    "params": [token_address]
                 }
                 
-                transfers_response = requests.post(alchemy_url, json=transfers_payload)
-                transfers_data = transfers_response.json()
+                token_meta_response = requests.post(alchemy_url, json=token_meta_payload)
+                token_meta_data = token_meta_response.json()
                 
-                if 'error' in transfers_data:
-                    logger.error(f"Error from Alchemy API: {transfers_data['error']}")
-                    continue
-                
-                transfers = transfers_data.get('result', {}).get('transfers', [])
-                logger.info(f"Found {len(transfers)} transfers for token {token_address}")
-                
-                for transfer in transfers:
+                if 'result' in token_meta_data and token_meta_data['result'].get('symbol'):
+                    token_symbol = token_meta_data['result'].get('symbol')
+                else:
+                    # Use first 6 chars of address if we can't get the symbol
+                    token_symbol = token_address[2:8]
+            
+            # Get transfers for this token
+            transfers_payload = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "alchemy_getAssetTransfers",
+                "params": [
+                    {
+                        "fromBlock": "0x0",  # From genesis block (all history)
+                        "toBlock": "latest",
+                        "category": ["erc20"],
+                        "contractAddresses": [token_address],
+                        "withMetadata": True,
+                        "excludeZeroValue": True,
+                        "maxCount": "0x64",  # Increase to 100 transfers (0x64 = 100 in hex)
+                        "order": "desc"  # Most recent first
+                    }
+                ]
+            }
+            
+            transfers_response = requests.post(alchemy_url, json=transfers_payload)
+            transfers_data = transfers_response.json()
+            
+            if 'error' in transfers_data:
+                logger.error(f"Error from Alchemy API: {transfers_data['error']}")
+                continue
+            
+            transfers = transfers_data.get('result', {}).get('transfers', [])
+            
+            # Process transfers to identify buys and sells
+            for transfer in transfers:
+                try:
                     tx_hash = transfer.get('hash')
-                    from_address = transfer.get('from')
-                    to_address = transfer.get('to')
-                    amount = float(transfer.get('value', 0))
-                    token_symbol = BASE_MEMECOINS.get(token_address, "Unknown")
+                    timestamp = int(transfer.get('metadata', {}).get('blockTimestamp', "0").replace("-", "").replace(":", "").replace("+", "").replace("T", "").replace("Z", ""))
                     
-                    # Skip transfers that don't involve this wallet
-                    wallet_address_lower = wallet_address.lower()
-                    if (from_address.lower() != wallet_address_lower and 
-                        to_address.lower() != wallet_address_lower):
-                        continue
-                    
-                    # Get transaction details to check ETH transfer
+                    # Get detailed transaction receipt to determine if this is a buy or sell
                     tx_payload = {
                         "jsonrpc": "2.0",
                         "id": 1,
@@ -573,119 +387,98 @@ async def get_base_transactions(wallet_address: str) -> List[Dict[str, Any]]:
                     }
                     
                     tx_response = requests.post(alchemy_url, json=tx_payload)
-                    tx_receipt = tx_response.json().get('result', {})
+                    tx_data = tx_response.json()
                     
-                    if not tx_receipt:
+                    if 'error' in tx_data:
+                        logger.error(f"Error from Alchemy API: {tx_data['error']}")
                         continue
                     
-                    # Get the entire transaction to check ETH value
-                    tx_detail_payload = {
+                    receipt = tx_data.get('result', {})
+                    logs = receipt.get('logs', [])
+                    
+                    # Get transaction details
+                    tx_details_payload = {
                         "jsonrpc": "2.0",
                         "id": 1,
                         "method": "eth_getTransactionByHash",
                         "params": [tx_hash]
                     }
                     
-                    tx_detail_response = requests.post(alchemy_url, json=tx_detail_payload)
-                    tx_detail = tx_detail_response.json().get('result', {})
+                    tx_details_response = requests.post(alchemy_url, json=tx_details_payload)
+                    tx_details_data = tx_details_response.json()
                     
-                    if not tx_detail:
+                    if 'error' in tx_details_data:
+                        logger.error(f"Error from Alchemy API: {tx_details_data['error']}")
                         continue
+                    
+                    tx_details = tx_details_data.get('result', {})
+                    
+                    # Try to determine if this is a buy or sell - much less restrictive logic
+                    tx_type = "unknown"
+                    amount = float(transfer.get('value', 0))
+                    price = 0.0
+                    
+                    # Determine if this is a buy or sell based on the direction of the transfer
+                    wallet_address_lower = wallet_address.lower()
+                    from_address = transfer.get('from', "").lower()
+                    to_address = transfer.get('to', "").lower()
+                    
+                    # Look for common DEX/router addresses in the from/to fields
+                    dex_addresses = [
+                        "0x6131b5fae19ea4f9d964eac0408e4408b66337b5",  # Uniswap Router
+                        "0x76d1b39666a48f30e5e0a4a9d678312fb6e5a8c6",  # QuickSwap Router
+                        "0x6e2b76966cbd9cf3e1f402cb123ae34df337e417",  # Pancake Router
+                        "0x6c43873400c9431386c753dbee05fdfa3a528af0",  # SushiSwap Router
+                        "0xb4fbf271143f4fbf7b91a5ded31805e42b2208d6"   # Wrapped ETH
+                    ]
+                    
+                    # For any transaction involving the wallet, consider it a potentially valid trade
+                    if wallet_address_lower == from_address:
+                        # Wallet is sending tokens - likely a sell
+                        tx_type = "sell"
+                    elif wallet_address_lower == to_address:
+                        # Wallet is receiving tokens - likely a buy
+                        tx_type = "buy"
+                    
+                    # Try to determine price
+                    if tx_type in ["buy", "sell"]:
+                        # Look for ETH value in the transaction
+                        eth_value = int(tx_details.get('value', "0x0"), 16) / 10**18
+                        gas_price = int(tx_details.get('gasPrice', "0x0"), 16) / 10**9
+                        gas_used = int(receipt.get('gasUsed', "0x0"), 16)
+                        gas_cost = gas_price * gas_used / 10**9
                         
-                    # Get block info for timestamp
-                    block_number = tx_detail.get('blockNumber')
-                    if not block_number:
-                        continue
+                        # If there's ETH value, use it to estimate price
+                        if eth_value > 0 and amount > 0:
+                            price = eth_value / amount
+                        # Otherwise try to derive from gas cost (very rough approximation)
+                        elif gas_cost > 0 and amount > 0:
+                            price = gas_cost / amount
                     
-                    block_payload = {
-                        "jsonrpc": "2.0",
-                        "id": 1,
-                        "method": "eth_getBlockByNumber",
-                        "params": [block_number, False]
-                    }
-                    
-                    block_response = requests.post(alchemy_url, json=block_payload)
-                    block_data = block_response.json().get('result', {})
-                    
-                    if not block_data:
-                        continue
-                    
-                    # Get timestamp from block
-                    timestamp = int(block_data.get('timestamp', '0x0'), 16)
-                    
-                    # Less restrictive transaction detection for Base transactions
-                    # We'll consider all transfers for the user's specific wallet
-                    if wallet_address_lower == "0x671b746d2c5a34609cce723cbf8f475639bc0fa2":
-                        if to_address.lower() == wallet_address_lower:
-                            tx_type = "buy"
-                            # Estimate price based on typical DEX rates
-                            price = 0.0001  # Placeholder price
-                        else:
-                            tx_type = "sell"
-                            price = 0.0002  # Placeholder price
-                    else:
-                        # Regular detection logic for other wallets
-                        # Determine transaction type and filter out airdrops/free tokens
-                        eth_value = int(tx_detail.get('value', '0x0'), 16) / 1e18  # Convert wei to ETH
+                    # Only add transactions where we could determine a type and price
+                    if tx_type in ["buy", "sell"] and amount > 0:
+                        # If price is zero, set a minimal price to avoid division by zero later
+                        if price <= 0:
+                            price = 0.0000001  # Minimal price as placeholder
                         
-                        if to_address.lower() == wallet_address_lower:
-                            # Receiving tokens - less restrictive for DEX trades
-                            if from_address.lower() == '0x0000000000000000000000000000000000000000':
-                                # Skip mints directly from the zero address (likely airdrops)
-                                continue
-                                
-                            # Consider almost all token receipts as buys for Base
-                            tx_type = "buy"
-                            
-                            # Estimate price based on ETH flow or gas cost
-                            gas_price = int(tx_detail.get('gasPrice', '0x0'), 16) / 1e18
-                            gas_used = int(tx_receipt.get('gasUsed', '0x0'), 16)
-                            gas_cost = gas_price * gas_used
-                            
-                            if eth_value > 0:
-                                price = eth_value / amount
-                            else:
-                                price = 0.0001  # Default price estimate for DEX trades
-                        elif from_address.lower() == wallet_address_lower:
-                            # Sending tokens - less restrictive for DEX trades
-                            tx_type = "sell"
-                            
-                            # For sales, estimate price
-                            if eth_value > 0:
-                                price = eth_value / amount if amount > 0 else 0
-                            else:
-                                price = 0.0002  # Default price estimate for DEX trades
-                        else:
-                            # Not involving this wallet directly
-                            continue
-                    
-                    memecoin_transactions.append({
-                        "tx_hash": tx_hash,
-                        "wallet_address": wallet_address,
-                        "token_address": token_address,
-                        "token_symbol": token_symbol,
-                        "amount": amount,
-                        "price": price,
-                        "timestamp": timestamp,
-                        "type": tx_type
-                    })
-                    
-                    # Small delay to avoid rate limiting
-                    await asyncio.sleep(0.1)
-            
-            logger.info(f"Found {len(memecoin_transactions)} memecoin transactions for wallet {wallet_address}")
-            
-            # Return only real transactions - no sample data fallback
-            return memecoin_transactions
-            
-        except Exception as e:
-            logger.error(f"Error fetching Base transactions: {str(e)}")
-            # Return empty list - no sample data fallback
-            return []
+                        all_transactions.append({
+                            "tx_hash": tx_hash,
+                            "wallet_address": wallet_address,
+                            "token_address": token_address,
+                            "token_symbol": token_symbol,
+                            "amount": amount,
+                            "price": price,
+                            "timestamp": int(datetime.strptime(transfer.get('metadata', {}).get('blockTimestamp', "2023-01-01T00:00:00Z"), "%Y-%m-%dT%H:%M:%SZ").timestamp()),
+                            "type": tx_type
+                        })
+                except Exception as e:
+                    logger.error(f"Error processing transfer: {str(e)}")
+                    continue
         
+        return all_transactions
+                
     except Exception as e:
         logger.error(f"Error getting Base transactions: {str(e)}")
-        # Return empty list - no sample data fallback
         return []
 
 async def analyze_memecoin_trades(transactions: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -730,89 +523,81 @@ async def analyze_memecoin_trades(transactions: List[Dict[str, Any]]) -> Dict[st
         buys = [tx for tx in sorted_txs if tx["type"] == "buy"]
         sells = [tx for tx in sorted_txs if tx["type"] == "sell"]
         
-        logger.info(f"Analyzing {token}: {len(buys)} buys, {len(sells)} sells")
-        
         # Skip tokens with no buy/sell pairs
         if not buys or not sells:
-            logger.info(f"Skipping {token}: no buy/sell pairs")
             continue
         
-        # Calculate token PnL using FIFO method
-        buy_queue = []
+        # Calculate trades
         token_pnl = 0.0
+        token_best_trade = 0.0
+        token_worst_trade = 0.0
+        token_best_multiplier = 0.0
         
-        # Track best and worst trades for this token
-        token_best_trade = {"profit": 0.0, "multiplier": 0.0}
-        token_worst_trade = {"loss": 0.0}
-        
-        # Process buys first (add them to the queue)
+        # Process buys and sells to pair them into trades
+        remaining_buys = []
         for buy in buys:
-            buy_queue.append({
+            remaining_buys.append({
                 "price": buy["price"],
                 "amount": buy["amount"],
                 "timestamp": buy["timestamp"]
             })
         
-        # Process sells using FIFO
         for sell in sells:
             sell_price = sell["price"]
             sell_amount = sell["amount"]
             sell_timestamp = sell["timestamp"]
-            remaining_sell = sell_amount
             
-            while remaining_sell > 0 and buy_queue:
-                buy = buy_queue[0]
-                used_amount = min(buy["amount"], remaining_sell)
+            # Match with available buys (oldest first)
+            while sell_amount > 0 and remaining_buys:
+                buy = remaining_buys[0]
                 
-                # Calculate profit/loss
-                buy_value = used_amount * buy["price"]
-                sell_value = used_amount * sell_price
+                # Determine matched amount
+                matched_amount = min(buy["amount"], sell_amount)
+                
+                # Calculate PnL for this matched portion
+                buy_value = matched_amount * buy["price"]
+                sell_value = matched_amount * sell_price
                 trade_pnl = sell_value - buy_value
                 
                 # Update token PnL
                 token_pnl += trade_pnl
                 
-                # Calculate multiplier
-                multiplier = sell_price / buy["price"] if buy["price"] > 0 else 0
+                # Check if this is the best or worst trade
+                if trade_pnl > token_best_trade:
+                    token_best_trade = trade_pnl
                 
-                # Check if this is the best trade (by profit)
-                if trade_pnl > token_best_trade["profit"]:
-                    token_best_trade["profit"] = trade_pnl
+                if trade_pnl < token_worst_trade:
+                    token_worst_trade = trade_pnl
                 
-                # Check if this is the best multiplier
-                if multiplier > token_best_trade["multiplier"]:
-                    token_best_trade["multiplier"] = multiplier
-                
-                # Check if this is the worst trade (by loss)
-                if trade_pnl < 0 and abs(trade_pnl) > token_worst_trade["loss"]:
-                    token_worst_trade["loss"] = abs(trade_pnl)
+                # Calculate multiplier (avoid division by zero)
+                if buy_value > 0:
+                    multiplier = sell_value / buy_value
+                    if multiplier > token_best_multiplier:
+                        token_best_multiplier = multiplier
                 
                 # Update remaining amounts
-                remaining_sell -= used_amount
-                buy["amount"] -= used_amount
+                buy["amount"] -= matched_amount
+                sell_amount -= matched_amount
                 
+                # Remove buy if fully used
                 if buy["amount"] <= 0:
-                    buy_queue.pop(0)
+                    remaining_buys.pop(0)
         
-        # Update overall statistics
-        all_time_pnl += token_pnl
-        
-        if token_best_trade["profit"] > best_trade_profit:
-            best_trade_profit = token_best_trade["profit"]
+        # Update global stats if token has noteworthy stats
+        if token_best_trade > best_trade_profit:
+            best_trade_profit = token_best_trade
             best_trade_token = token
         
-        if token_best_trade["multiplier"] > best_multiplier:
-            best_multiplier = token_best_trade["multiplier"]
+        if token_worst_trade < worst_trade_loss:
+            worst_trade_loss = token_worst_trade
+            worst_trade_token = token
+        
+        if token_best_multiplier > best_multiplier:
+            best_multiplier = token_best_multiplier
             best_multiplier_token = token
         
-        if token_worst_trade["loss"] > worst_trade_loss:
-            worst_trade_loss = token_worst_trade["loss"]
-            worst_trade_token = token
-    
-    logger.info(f"Analysis results: Best profit: {best_trade_profit} ({best_trade_token}), " +
-               f"Best multiplier: {best_multiplier}x ({best_multiplier_token}), " +
-               f"All-time PnL: {all_time_pnl}, " +
-               f"Worst loss: {worst_trade_loss} ({worst_trade_token})")
+        # Add to total PnL
+        all_time_pnl += token_pnl
     
     return {
         "best_trade_profit": best_trade_profit,
@@ -849,100 +634,126 @@ async def analyze_wallet(search_query: SearchQuery) -> TradeStats:
         # Get transactions based on blockchain
         if blockchain == "solana":
             transactions = await get_solana_transactions(wallet_address)
-        else:
+        else:  # blockchain == "base"
             transactions = await get_base_transactions(wallet_address)
         
-        # If no transactions were found, return empty stats
+        # Don't show any results if no transactions found
         if not transactions:
-            logger.info(f"No memecoin transactions found for {blockchain} wallet: {wallet_address}")
+            logger.info(f"No transactions found for {blockchain} wallet: {wallet_address}")
             return TradeStats(
+                id=str(uuid.uuid4()),
                 wallet_address=wallet_address,
-                blockchain=blockchain
+                blockchain=blockchain,
+                best_trade_profit=0.0,
+                best_trade_token="",
+                best_multiplier=0.0,
+                best_multiplier_token="",
+                all_time_pnl=0.0,
+                worst_trade_loss=0.0,
+                worst_trade_token="",
+                timestamp=datetime.now()
             )
         
-        # Analyze trades to calculate statistics
+        # Analyze trades
         stats = await analyze_memecoin_trades(transactions)
         
-        # Create and save trade stats
-        trade_stats = TradeStats(
+        # Create response
+        result = TradeStats(
+            id=str(uuid.uuid4()),
             wallet_address=wallet_address,
             blockchain=blockchain,
-            **stats
+            best_trade_profit=stats["best_trade_profit"],
+            best_trade_token=stats["best_trade_token"],
+            best_multiplier=stats["best_multiplier"],
+            best_multiplier_token=stats["best_multiplier_token"],
+            all_time_pnl=stats["all_time_pnl"],
+            worst_trade_loss=stats["worst_trade_loss"],
+            worst_trade_token=stats["worst_trade_token"],
+            timestamp=datetime.now()
         )
         
-        # Only save to database if we found meaningful stats
-        if (trade_stats.best_trade_token or 
-            trade_stats.best_multiplier_token or 
-            trade_stats.worst_trade_token or 
-            abs(trade_stats.all_time_pnl) > 0.000001):
-            await db.trade_stats.insert_one(trade_stats.dict())
-            logger.info(f"Saved analytics for {blockchain} wallet: {wallet_address}")
-        else:
-            logger.info(f"No meaningful stats to save for {blockchain} wallet: {wallet_address}")
+        # Store in MongoDB
+        await collection.insert_one(result.dict())
         
-        logger.info(f"Analysis complete for {blockchain} wallet: {wallet_address}")
-        return trade_stats
+        return result
+        
     except Exception as e:
         logger.error(f"Error analyzing wallet: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error analyzing wallet: {str(e)}")
 
 @api_router.get("/leaderboard/{stat_type}")
-async def get_leaderboard(stat_type: str, blockchain: str = "solana", limit: int = 10) -> List[Dict[str, Any]]:
+async def get_leaderboard(stat_type: str, blockchain: str = Query(...)):
     """
     Get leaderboard data for a specific statistic
     """
-    # Validate blockchain parameter
-    if blockchain not in ["solana", "base"]:
-        raise HTTPException(status_code=400, detail="Blockchain must be 'solana' or 'base'")
-    
-    # Map stat_type to DB field and sort direction
-    stat_map = {
-        "best_trade": ("best_trade_profit", -1),
-        "best_multiplier": ("best_multiplier", -1),
-        "all_time_pnl": ("all_time_pnl", -1),
-        "worst_trade": ("worst_trade_loss", 1)
-    }
-    
-    if stat_type not in stat_map:
-        raise HTTPException(status_code=400, detail="Invalid stat_type")
-    
-    field, sort_direction = stat_map[stat_type]
-    field_token = f"{field.replace('profit', 'token').replace('loss', 'token')}"
-    
-    # Query database for leaderboard data - only include entries with real data
-    # 1. Must have a non-zero value
-    # 2. Must have a token name
-    # 3. Sort by the specified field
-    leaderboard = await db.trade_stats.find(
-        {
+    try:
+        if blockchain not in ["solana", "base"]:
+            raise HTTPException(status_code=400, detail="Invalid blockchain")
+        
+        stat_map = {
+            "best_trade": ("best_trade_profit", -1),
+            "best_multiplier": ("best_multiplier", -1),
+            "all_time_pnl": ("all_time_pnl", -1),
+            "worst_trade": ("worst_trade_loss", 1)  # For worst trade, lower (more negative) is higher rank
+        }
+        
+        if stat_type not in stat_map:
+            raise HTTPException(status_code=400, detail="Invalid stat_type")
+            
+        field, sort_order = stat_map[stat_type]
+        
+        # Determine the field that contains the token name
+        field_token = f"{field}_token"
+        if stat_type == "all_time_pnl":
+            field_token = "all_time_pnl"  # No token for PnL
+            
+        # Only include wallets with real data
+        query = {
             "blockchain": blockchain,
             field: {"$ne": 0},  # Non-zero value
             field_token: {"$ne": ""}  # Non-empty token
         }
-    ).sort(field, sort_direction).limit(limit).to_list(limit)
-    
-    # Format results
-    return [
-        {
-            "wallet_address": entry["wallet_address"],
-            "value": entry[field],
-            "token": entry.get(field_token, ""),
-            "rank": i + 1
-        }
-        for i, entry in enumerate(leaderboard)
-    ]
+        
+        # For all_time_pnl, we don't need to check the token
+        if stat_type == "all_time_pnl":
+            query = {
+                "blockchain": blockchain,
+                field: {"$ne": 0}  # Just check for non-zero PnL
+            }
+            
+        cursor = collection.find(query).sort(field, sort_order).limit(10)
+        leaderboard = []
+        rank = 1
+        
+        async for doc in cursor:
+            value = doc[field]
+            token = doc.get(field_token, "")
+            
+            if stat_type == "all_time_pnl":
+                token = value  # For PnL, just duplicate the value
+                
+            leaderboard.append({
+                "wallet_address": doc["wallet_address"],
+                "value": value,
+                "token": token,
+                "rank": rank
+            })
+            rank += 1
+            
+        return leaderboard
+        
+    except Exception as e:
+        logger.error(f"Error getting leaderboard: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting leaderboard: {str(e)}")
 
-# Include the router in the main app
-app.include_router(api_router)
+# Mount the API router
+app.mount("/api", api_router)
 
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# MongoDB connection events
+@app.on_event("startup")
+async def startup_db_client():
+    await db.command("ping")
+    logger.info("Connected to MongoDB")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
