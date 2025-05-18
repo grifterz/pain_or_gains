@@ -236,15 +236,21 @@ async def get_solana_transactions(wallet_address: str) -> List[Dict[str, Any]]:
                         continue
                     
                     # Get token balances before and after
-                    pre_balances = meta.get('preTokenBalances', [])
-                    post_balances = meta.get('postTokenBalances', [])
+                    pre_token_balances = meta.get('preTokenBalances', [])
+                    post_token_balances = meta.get('postTokenBalances', [])
                     
                     # Skip if no token activity
-                    if not pre_balances and not post_balances:
+                    if not pre_token_balances and not post_token_balances:
                         continue
                     
+                    # Track SOL amount changes to verify if token was actually purchased/sold
+                    # SOL balances are in the first element as lamports (1 SOL = 1 billion lamports)
+                    pre_sol_balance = meta.get('preBalances', [0])[0] / 1_000_000_000
+                    post_sol_balance = meta.get('postBalances', [0])[0] / 1_000_000_000
+                    sol_change = post_sol_balance - pre_sol_balance
+                    
                     # Check for memecoin transfers
-                    for post_balance in post_balances:
+                    for post_balance in post_token_balances:
                         mint = post_balance.get('mint')
                         owner = post_balance.get('owner')
                         
@@ -253,28 +259,42 @@ async def get_solana_transactions(wallet_address: str) -> List[Dict[str, Any]]:
                             continue
                         
                         # Find matching pre-balance
-                        pre_balance = next((b for b in pre_balances if b.get('mint') == mint and b.get('owner') == owner), None)
+                        pre_balance = next((b for b in pre_token_balances if b.get('mint') == mint and b.get('owner') == owner), None)
                         
                         post_amount = float(post_balance.get('uiTokenAmount', {}).get('uiAmount', 0))
                         pre_amount = float(pre_balance.get('uiTokenAmount', {}).get('uiAmount', 0)) if pre_balance else 0
                         
-                        # Determine if buy or sell
-                        if post_amount > pre_amount:
-                            # This is a buy
-                            amount = post_amount - pre_amount
-                            tx_type = "buy"
-                        elif post_amount < pre_amount:
-                            # This is a sell
-                            amount = pre_amount - post_amount
-                            tx_type = "sell"
+                        # Calculate token amount change
+                        token_change = post_amount - pre_amount
+                        
+                        # Determine transaction type and filter out airdrops
+                        if token_change > 0:  # Received tokens
+                            # Check if SOL was spent (negative sol_change indicates SOL was spent)
+                            if sol_change < -0.000001:  # Small threshold to account for transaction fees
+                                # This was a purchase - tokens increased, SOL decreased
+                                tx_type = "buy"
+                                amount = token_change
+                                # Estimate price (SOL spent / tokens received)
+                                price = abs(sol_change) / amount
+                            else:
+                                # This was likely an airdrop or gift - received tokens without spending SOL
+                                # Skip this transaction as it's not a trade
+                                continue
+                        elif token_change < 0:  # Sent tokens
+                            # Check if SOL was received (positive sol_change)
+                            if sol_change > 0.000001:
+                                # This was a sale - tokens decreased, SOL increased
+                                tx_type = "sell"
+                                amount = abs(token_change)
+                                # Estimate price (SOL received / tokens sent)
+                                price = sol_change / amount
+                            else:
+                                # This was likely a transfer out - tokens sent without receiving SOL
+                                # Skip this transaction as it's not a trade
+                                continue
                         else:
                             # No change in token amount, skip
                             continue
-                        
-                        # Estimate price based on SOL change
-                        # NOTE: This is a simplification - real price would require DEX query
-                        sol_change = abs(meta.get('postBalances', [0])[0] - meta.get('preBalances', [0])[0]) / 1_000_000_000  # Convert lamports to SOL
-                        price = sol_change / amount if amount > 0 else 0
                         
                         # Add to transactions list
                         memecoin_transactions.append({
