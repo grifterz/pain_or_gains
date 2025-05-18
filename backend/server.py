@@ -97,11 +97,20 @@ BASE_MEMECOINS = {
 # Helper function to validate wallet addresses
 def is_valid_solana_address(address: str) -> bool:
     try:
-        if len(address) != 44 and len(address) != 43:
+        # Solana addresses must be 32-44 bytes long in base58 encoding
+        if len(address) < 32 or len(address) > 44:
             return False
-        # Try to decode a Solana address (base58)
-        base58.b58decode(address)
-        return True
+            
+        # Only allow base58 characters
+        if not re.match(r'^[1-9A-HJ-NP-Za-km-z]+$', address):
+            return False
+            
+        # Try to decode the address
+        try:
+            base58.b58decode(address)
+            return True
+        except:
+            return False
     except Exception:
         return False
 
