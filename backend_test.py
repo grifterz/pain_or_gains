@@ -210,12 +210,11 @@ class MemecoinsAPITester:
             if not isinstance(data, list):
                 return False, "Expected list response for leaderboard"
                 
-            # Check if we have entries
+            # For the specific test case, we expect empty leaderboard
             if not data:
-                # Empty leaderboard is valid if no wallets have been analyzed
-                return True, "Leaderboard is empty (this is valid if no wallets have been analyzed)"
+                return True, "Leaderboard is correctly empty (no wallets with real activity)"
                 
-            # Check structure of entries
+            # If there are entries, verify they have real data
             required_fields = ["wallet_address", "value", "token", "rank"]
             for entry in data:
                 missing_fields = [field for field in required_fields if field not in entry]
