@@ -12,6 +12,7 @@ import requests
 import random
 from datetime import datetime
 import sys
+import traceback
 
 # Import our token finder and blockchain fetcher
 sys.path.append("/app/backend")
@@ -96,14 +97,27 @@ async def store_transactions(wallet_address: str, blockchain: str, transactions:
     
     logger.info(f"Storing {len(transactions)} transactions for {blockchain} wallet: {wallet_address}")
     
+    # First clear existing transactions for this wallet to avoid duplicates
+    await transactions_collection.delete_many({"wallet_address": wallet_address, "blockchain": blockchain})
+    
     # Store each transaction
     for tx in transactions:
-        # Use tx_hash as a unique identifier
-        await transactions_collection.update_one(
-            {"tx_hash": tx["tx_hash"], "wallet_address": wallet_address},
-            {"$set": tx},
-            upsert=True
-        )
+        # Add blockchain field if not present
+        if "blockchain" not in tx:
+            tx["blockchain"] = blockchain
+            
+        try:
+            # Convert amounts to float for consistent processing
+            tx["amount"] = float(tx["amount"])
+            if "price" in tx:
+                tx["price"] = float(tx["price"]) if tx["price"] else 0.0
+                
+            # Store in MongoDB
+            await transactions_collection.insert_one(tx)
+        except Exception as e:
+            logger.error(f"Error storing transaction: {str(e)}")
+            logger.error(f"Transaction: {tx}")
+            continue
     
     # Update wallet record
     await wallets_collection.update_one(
@@ -121,12 +135,19 @@ async def get_stored_transactions(wallet_address: str, blockchain: str) -> List[
     """
     Get stored transactions for a wallet from MongoDB
     """
-    cursor = transactions_collection.find({"wallet_address": wallet_address})
-    return await cursor.to_list(length=1000)  # Limit to 1000 transactions
+    cursor = transactions_collection.find({"wallet_address": wallet_address, "blockchain": blockchain})
+    transactions = await cursor.to_list(length=1000)  # Limit to 1000 transactions
+    
+    # Convert MongoDB ObjectId to string for serialization
+    for tx in transactions:
+        if "_id" in tx:
+            tx["_id"] = str(tx["_id"])
+    
+    return transactions
 
 async def analyze_transactions(transactions):
     """
-    Analyze token trades to calculate statistics
+    Analyze token trades to calculate statistics in native currency (SOL or ETH)
     """
     if not transactions:
         return {
@@ -144,15 +165,18 @@ async def analyze_transactions(transactions):
     token_metadata = {}
     
     for tx in transactions:
-        token = tx["token_symbol"]
-        if token not in token_transactions:
-            token_transactions[token] = []
-            token_metadata[token] = {
-                "address": tx["token_address"],
-                "name": tx["token_name"],
-                "symbol": tx["token_symbol"]
+        token_symbol = tx.get("token_symbol", "")
+        if not token_symbol:
+            continue
+            
+        if token_symbol not in token_transactions:
+            token_transactions[token_symbol] = []
+            token_metadata[token_symbol] = {
+                "address": tx.get("token_address", ""),
+                "name": tx.get("token_name", ""),
+                "symbol": token_symbol
             }
-        token_transactions[token].append(tx)
+        token_transactions[token_symbol].append(tx)
     
     # Calculate statistics
     best_trade_profit = 0.0
@@ -166,11 +190,11 @@ async def analyze_transactions(transactions):
     # Process each token separately
     for token, txs in token_transactions.items():
         # Sort transactions by timestamp
-        sorted_txs = sorted(txs, key=lambda x: x["timestamp"])
+        sorted_txs = sorted(txs, key=lambda x: x.get("timestamp", 0))
         
         # Separate buys and sells
-        buys = [tx for tx in sorted_txs if tx["type"] == "buy"]
-        sells = [tx for tx in sorted_txs if tx["type"] == "sell"]
+        buys = [tx for tx in sorted_txs if tx.get("type", "") == "buy"]
+        sells = [tx for tx in sorted_txs if tx.get("type", "") == "sell"]
         
         # Skip tokens with no buy/sell pairs
         if not buys or not sells:
@@ -185,48 +209,59 @@ async def analyze_transactions(transactions):
         # Process buys and sells to pair them into trades
         remaining_buys = []
         for buy in buys:
-            remaining_buys.append({
-                "price": buy["price"],
-                "amount": buy["amount"],
-                "timestamp": buy["timestamp"]
-            })
+            # Make sure amount and price are numeric
+            buy_amount = float(buy.get("amount", 0))
+            buy_price = float(buy.get("price", 0))
+            
+            if buy_amount > 0:
+                remaining_buys.append({
+                    "price": buy_price,
+                    "amount": buy_amount,
+                    "timestamp": buy.get("timestamp", 0)
+                })
         
         for sell in sells:
-            sell_price = sell["price"]
-            sell_amount = sell["amount"]
-            sell_timestamp = sell["timestamp"]
+            # Make sure amount and price are numeric
+            sell_amount = float(sell.get("amount", 0))
+            sell_price = float(sell.get("price", 0))
+            sell_timestamp = sell.get("timestamp", 0)
             
+            if sell_amount <= 0 or not remaining_buys:
+                continue
+                
             # Match with available buys (oldest first)
-            while sell_amount > 0 and remaining_buys:
+            matched_sell_amount = 0
+            while matched_sell_amount < sell_amount and remaining_buys:
                 buy = remaining_buys[0]
                 
                 # Determine matched amount
-                matched_amount = min(buy["amount"], sell_amount)
+                available_amount = min(buy["amount"], sell_amount - matched_sell_amount)
                 
                 # Calculate PnL for this matched portion
-                buy_value = matched_amount * buy["price"]
-                sell_value = matched_amount * sell_price
-                trade_pnl = sell_value - buy_value
-                
-                # Update token PnL
-                token_pnl += trade_pnl
-                
-                # Check if this is the best or worst trade
-                if trade_pnl > token_best_trade:
-                    token_best_trade = trade_pnl
-                
-                if trade_pnl < token_worst_trade:
-                    token_worst_trade = trade_pnl
-                
-                # Calculate multiplier (avoid division by zero)
-                if buy_value > 0:
-                    multiplier = sell_value / buy_value
-                    if multiplier > token_best_multiplier:
-                        token_best_multiplier = multiplier
+                if buy["price"] > 0 and sell_price > 0:
+                    buy_value = available_amount * buy["price"]
+                    sell_value = available_amount * sell_price
+                    trade_pnl = sell_value - buy_value
+                    
+                    # Update token PnL
+                    token_pnl += trade_pnl
+                    
+                    # Check if this is the best or worst trade
+                    if trade_pnl > token_best_trade:
+                        token_best_trade = trade_pnl
+                    
+                    if trade_pnl < token_worst_trade:
+                        token_worst_trade = trade_pnl
+                    
+                    # Calculate multiplier (avoid division by zero)
+                    if buy_value > 0:
+                        multiplier = sell_value / buy_value
+                        if multiplier > token_best_multiplier:
+                            token_best_multiplier = multiplier
                 
                 # Update remaining amounts
-                buy["amount"] -= matched_amount
-                sell_amount -= matched_amount
+                buy["amount"] -= available_amount
+                matched_sell_amount += available_amount
                 
                 # Remove buy if fully used
                 if buy["amount"] <= 0:
@@ -288,7 +323,7 @@ async def analyze_wallet(search_query: SearchQuery) -> TradeStats:
         wallet_doc = await wallets_collection.find_one({"address": wallet_address, "blockchain": blockchain})
         
         # Get transactions - either from cache or fetch new ones
-        if wallet_doc and "last_updated" in wallet_doc:
+        if wallet_doc and wallet_doc.get("last_updated"):
             last_updated = wallet_doc["last_updated"]
             if (datetime.now() - last_updated).total_seconds() < 3600:  # 1 hour cache
                 logger.info(f"Using cached transactions for {wallet_address}")
@@ -303,6 +338,8 @@ async def analyze_wallet(search_query: SearchQuery) -> TradeStats:
             logger.info(f"Fetching new transactions for {wallet_address}")
             transactions = fetch_wallet_transactions(wallet_address, blockchain)
             await store_transactions(wallet_address, blockchain, transactions)
+        
+        logger.info(f"Found {len(transactions)} transactions for {wallet_address}")
         
         # Don't show any results if no transactions found
         if not transactions:
@@ -346,6 +383,7 @@ async def analyze_wallet(search_query: SearchQuery) -> TradeStats:
         
     except Exception as e:
         logger.error(f"Error analyzing wallet: {str(e)}")
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Error analyzing wallet: {str(e)}")
 
 @api_router.get("/wallet/{wallet_address}")
@@ -366,7 +404,7 @@ async def get_wallet_details(wallet_address: str, blockchain: str = Query(...)):
         wallet_doc = await wallets_collection.find_one({"address": wallet_address, "blockchain": blockchain})
         
         # Get transactions - either from cache or fetch new ones
-        if wallet_doc and "last_updated" in wallet_doc:
+        if wallet_doc and wallet_doc.get("last_updated"):
             last_updated = wallet_doc["last_updated"]
             if (datetime.now() - last_updated).total_seconds() < 3600:  # 1 hour cache
                 logger.info(f"Using cached transactions for {wallet_address}")
@@ -382,41 +420,51 @@ async def get_wallet_details(wallet_address: str, blockchain: str = Query(...)):
             transactions = fetch_wallet_transactions(wallet_address, blockchain)
             await store_transactions(wallet_address, blockchain, transactions)
         
+        logger.info(f"Found {len(transactions)} transactions for {wallet_address}")
+        
         # Process transactions to get token positions
         positions = []
         token_data = {}
         
         for tx in transactions:
-            token_address = tx["token_address"]
-            token_name = tx["token_name"]
-            token_symbol = tx["token_symbol"]
+            token_address = tx.get("token_address", "")
+            token_name = tx.get("token_name", "")
+            token_symbol = tx.get("token_symbol", "")
             
+            if not token_address or not token_symbol:
+                continue
+                
             if token_address not in token_data:
                 token_data[token_address] = {
                     "token_address": token_address,
                     "token_name": token_name,
                     "token_symbol": token_symbol,
-                    "balance": 0,
-                    "value": 0,
-                    "cost_basis": 0,
-                    "last_price": 0
+                    "balance": 0.0,
+                    "value": 0.0,
+                    "cost_basis": 0.0,
+                    "last_price": 0.0
                 }
             
             # Update token data based on transaction type
-            if tx["type"] == "buy":
-                token_data[token_address]["balance"] += tx["amount"]
-                token_data[token_address]["cost_basis"] += (tx["amount"] * tx["price"])
-            elif tx["type"] == "sell":
-                token_data[token_address]["balance"] -= tx["amount"]
+            amount = float(tx.get("amount", 0))
+            price = float(tx.get("price", 0))
             
-            # Update last price
-            if tx["price"] > 0:
-                token_data[token_address]["last_price"] = tx["price"]
+            if tx.get("type") == "buy":
+                token_data[token_address]["balance"] += amount
+                if price > 0:
+                    token_data[token_address]["cost_basis"] += (amount * price)
+            elif tx.get("type") == "sell":
+                token_data[token_address]["balance"] -= amount
+            
+            # Update last price if available
+            if price > 0:
+                token_data[token_address]["last_price"] = price
         
         # Calculate current value and create positions list
         for token_address, data in token_data.items():
             if data["balance"] > 0:
-                data["value"] = data["balance"] * data["last_price"]
+                if data["last_price"] > 0:
+                    data["value"] = data["balance"] * data["last_price"]
                 positions.append(data)
         
         # Get trade stats
@@ -435,6 +483,7 @@ async def get_wallet_details(wallet_address: str, blockchain: str = Query(...)):
     
     except Exception as e:
         logger.error(f"Error getting wallet details: {str(e)}")
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Error getting wallet details: {str(e)}")
 
 @api_router.get("/leaderboard")
@@ -498,6 +547,7 @@ async def get_leaderboard(blockchain: str = Query(...), metric: str = Query(...)
         
     except Exception as e:
         logger.error(f"Error getting leaderboard: {str(e)}")
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Error getting leaderboard: {str(e)}")
 
 # Mount the API router
