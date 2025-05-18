@@ -53,7 +53,7 @@ class MemecoinsAPITester:
             200
         )
 
-    def test_analyze_solana_wallet(self, wallet_address="5FHwkrdxD5AKmYi9B1zXUU6ViTxPgZsJrtZfP2hkhF52"):
+    def test_analyze_solana_wallet(self, wallet_address="8kzcTCwWTmsYTkNPbsMiQGE9sBJqXY5X38UHgtQ8cEwN"):
         """Test analyzing a Solana wallet"""
         return self.run_test(
             "Analyze Solana Wallet",
