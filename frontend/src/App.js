@@ -69,11 +69,12 @@ const Search = ({ onSearch }) => {
       
       toast.dismiss(loadingToast);
       
-      // Check if we got real data (not just empty values)
-      const hasRealData = response.data.best_trade_token || 
-                          response.data.best_multiplier_token || 
-                          response.data.worst_trade_token;
-      
+      const hasRealData = Boolean(
+        results.best_trade_token || 
+        results.best_multiplier_token || 
+        results.worst_trade_token || 
+        Math.abs(results.all_time_pnl) > 0.000001
+      );
       
       if (hasRealData) {
         toast.success("Analysis complete!");
