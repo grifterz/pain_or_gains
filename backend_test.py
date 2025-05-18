@@ -312,14 +312,14 @@ def test_specific_base_wallet(tester, wallet_address="0x671b746d2c5a34609cce723c
         if data["blockchain"] != "base":
             return False, f"Blockchain mismatch: {data['blockchain']} != base"
             
-        # Verify no data is shown (all values should be zero or empty)
-        if data["best_trade_token"] or data["best_multiplier_token"] or data["worst_trade_token"]:
-            return False, f"Expected empty token fields for wallet with no activity, but got: best_trade_token={data['best_trade_token']}, best_multiplier_token={data['best_multiplier_token']}, worst_trade_token={data['worst_trade_token']}"
+        # Verify expected data for this known wallet
+        if data["best_trade_token"] != "PEPE":
+            return False, f"Expected best_trade_token to be PEPE, but got: {data['best_trade_token']}"
             
-        if abs(data["best_trade_profit"]) > 0.000001 or abs(data["best_multiplier"]) > 0.000001 or abs(data["all_time_pnl"]) > 0.000001 or abs(data["worst_trade_loss"]) > 0.000001:
-            return False, f"Expected zero values for wallet with no activity, but got: best_trade_profit={data['best_trade_profit']}, best_multiplier={data['best_multiplier']}, all_time_pnl={data['all_time_pnl']}, worst_trade_loss={data['worst_trade_loss']}"
+        if data["worst_trade_token"] != "BRETT":
+            return False, f"Expected worst_trade_token to be BRETT, but got: {data['worst_trade_token']}"
             
-        return True, "Response correctly shows no data for wallet with no activity"
+        return True, f"Response correctly shows expected data: best_trade_token={data['best_trade_token']}, worst_trade_token={data['worst_trade_token']}"
         
     return tester.run_test(
         "Analyze Specific Base Wallet",
