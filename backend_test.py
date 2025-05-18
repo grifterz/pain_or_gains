@@ -97,19 +97,19 @@ class MemeAnalyzerTester:
         if success and wallet_address == "0x671b746d2c5a34609cce723cbf8f475639bc0fa2":
             print("\nVerifying Base wallet specific token names:")
             
-            # Check for BASED token instead of e1abd0
-            if response.get("best_trade_token") == "BASED":
-                print("✅ Best trade token shows as BASED (not e1abd0)")
+            # Check for ROOST token instead of e1abd0
+            if response.get("best_trade_token") == "ROOST":
+                print("✅ Best trade token shows as ROOST (not e1abd0 or BASED)")
                 self.tests_passed += 1
             else:
-                print(f"❌ Best trade token shows as {response.get('best_trade_token')} instead of BASED")
+                print(f"❌ Best trade token shows as {response.get('best_trade_token')} instead of ROOST")
                 
-            # Check for BASED token for best multiplier
-            if response.get("best_multiplier_token") == "BASED":
-                print("✅ Best multiplier token shows as BASED")
+            # Check for ROOST token for best multiplier
+            if response.get("best_multiplier_token") == "ROOST":
+                print("✅ Best multiplier token shows as ROOST")
                 self.tests_passed += 1
             else:
-                print(f"❌ Best multiplier token shows as {response.get('best_multiplier_token')} instead of BASED")
+                print(f"❌ Best multiplier token shows as {response.get('best_multiplier_token')} instead of ROOST")
                 
             # Check for profit values
             if response.get("best_trade_profit") and abs(response.get("best_trade_profit") - 0.2) < 0.1:
