@@ -955,25 +955,23 @@ async def get_leaderboard(stat_type: str, blockchain: str = Query(...)):
         query = {
             "blockchain": blockchain,
             field: {"$ne": 0},  # Non-zero value
-            field_token: {"$ne": ""}  # Non-empty token
         }
         
-        # For all_time_pnl, we don't need to check the token
-        if stat_type == "all_time_pnl":
-            query = {
-                "blockchain": blockchain,
-                field: {"$ne": 0}  # Just check for non-zero PnL
-            }
-            
         cursor = collection.find(query).sort(field, sort_order).limit(10)
         leaderboard = []
         rank = 1
         
         async for doc in cursor:
             value = doc[field]
-            token = doc.get(field_token, "")
             
-            if stat_type == "all_time_pnl":
+            # Get the correct token based on stat type
+            if stat_type == "best_trade":
+                token = doc.get("best_trade_token", "")
+            elif stat_type == "worst_trade":
+                token = doc.get("worst_trade_token", "")
+            elif stat_type == "best_multiplier":
+                token = doc.get("best_multiplier_token", "")
+            elif stat_type == "all_time_pnl":
                 token = value  # For PnL, just duplicate the value
                 
             leaderboard.append({
