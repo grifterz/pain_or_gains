@@ -143,8 +143,11 @@ async def get_solana_transactions(wallet_address: str) -> List[Dict[str, Any]]:
         if not is_valid_solana_address(wallet_address):
             raise ValueError("Invalid Solana wallet address")
             
-        # Get transaction signatures for the wallet - use the string address directly
-        signatures_response = solana_client.get_signatures_for_address(wallet_address)
+        # Convert string address to PublicKey object
+        pubkey = PublicKey(wallet_address)
+            
+        # Get transaction signatures for the wallet
+        signatures_response = solana_client.get_signatures_for_address(pubkey)
         
         transactions = []
         memecoin_transactions = []
