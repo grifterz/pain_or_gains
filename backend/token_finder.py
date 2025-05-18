@@ -7,7 +7,14 @@ import logging
 import json
 import time
 import os
+import sys
 from typing import Tuple, Dict, Any, Optional
+
+# Add the backend directory to the path for imports
+sys.path.append("/app/backend")
+
+# Import our Syndica integration
+from external_integrations.syndica_integration import get_token_name_and_symbol as syndica_get_token_name
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -183,13 +190,30 @@ def get_token_name(token_address, blockchain) -> Tuple[str, str]:
     """
     try:
         if blockchain.lower() == "solana":
+            # First try Syndica RPC API for Solana tokens
+            try:
+                logger.info(f"Trying Syndica RPC for token {token_address}")
+                name, symbol = syndica_get_token_name(token_address)
+                logger.info(f"Syndica returned name={name}, symbol={symbol} for {token_address}")
+                
+                # If both name and symbol are available, return them
+                if name and symbol and name != token_address[:10] + "..." and symbol != token_address[:6]:
+                    return name, symbol
+                else:
+                    logger.warning(f"Syndica fallback used for token {token_address}")
+            except Exception as e:
+                logger.error(f"Error using Syndica for token {token_address}: {str(e)}")
+            
+            # If Syndica fails, fall back to Solscan
+            logger.info(f"Falling back to Solscan for token {token_address}")
             token_info = get_solana_token_info(token_address)
+            return token_info["name"], token_info["symbol"]
         elif blockchain.lower() == "base":
             token_info = get_base_token_info(token_address)
+            return token_info["name"], token_info["symbol"]
         else:
             return token_address[:10] + "...", token_address[:6]
             
-        return token_info["name"], token_info["symbol"]
     except Exception as e:
         logger.error(f"Error in get_token_name: {str(e)}")
         
