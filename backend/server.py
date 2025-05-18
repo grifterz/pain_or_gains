@@ -48,7 +48,7 @@ ALCHEMY_API_KEY = os.environ.get('ALCHEMY_API_KEY')
 # Define blockchain RPC URLs with API keys
 SOLANA_RPC_URL = f"https://api.mainnet-beta.solana.com"
 if QUICKNODE_API_KEY:
-    SOLANA_RPC_URL = f"https://solana-mainnet.rpc.multiply.technology/qn-{QUICKNODE_API_KEY}"
+    SOLANA_RPC_URL = f"https://api.mainnet-beta.solana.com"  # Fallback to public endpoint
 
 BASE_RPC_URL = "https://mainnet.base.org"
 if ALCHEMY_API_KEY:
