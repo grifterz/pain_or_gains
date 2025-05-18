@@ -6,6 +6,7 @@ import requests
 import logging
 import json
 import time
+import asyncio
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 import base58
@@ -14,11 +15,14 @@ import base58
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Import the transaction indexer
+from transaction_indexer import index_wallet
+
 # Cache for recent transactions to avoid repeated calls
 TRANSACTION_CACHE = {}
 CACHE_TTL = 3600  # 1 hour
 
-# Mock data for demo when RPC rate limits are reached
+# Fallback data for when RPC rate limits are reached or transactions can't be fetched
 SOLANA_DEMO_DATA = [
     {
         "tx_hash": "demo_tx_1",
@@ -97,52 +101,41 @@ BASE_DEMO_DATA = [
     }
 ]
 
-def get_solana_rpc_endpoint():
+async def get_stored_transactions(wallet_address: str, blockchain: str) -> List[Dict[str, Any]]:
     """
-    Get the Solana RPC endpoint with API key if available
+    Get stored transactions for a wallet from MongoDB
+    This function interfaces with the transaction indexer
     """
-    # Default public endpoint as a fallback
-    DEFAULT_ENDPOINT = "https://api.mainnet-beta.solana.com"
+    from motor.motor_asyncio import AsyncIOMotorClient
     
-    # Try to get Syndica API key from environment
-    syndica_api_key = os.environ.get("SOLANA_API_KEY", "")
-    if syndica_api_key:
-        return f"https://solana-mainnet.api.syndica.io/api-key/{syndica_api_key}"
+    # MongoDB connection
+    mongo_url = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
+    client = AsyncIOMotorClient(mongo_url)
+    db = client["memecoin_analyzer"]
+    transactions_collection = db["transactions"]
     
-    # Use Helius RPC if available (better rate limits than public endpoint)
-    helius_api_key = os.environ.get("HELIUS_API_KEY", "")
-    if helius_api_key:
-        return f"https://mainnet.helius-rpc.com/?api-key={helius_api_key}"
+    # Query for this wallet's transactions
+    cursor = transactions_collection.find({
+        "wallet_address": wallet_address,
+        "blockchain": blockchain
+    })
     
-    # Default fallback to public endpoint
-    return DEFAULT_ENDPOINT
-
-def get_base_rpc_endpoint():
-    """
-    Get the Base RPC endpoint with API key if available
-    """
-    # Default public endpoint
-    DEFAULT_ENDPOINT = "https://mainnet.base.org"
+    # Convert to list
+    transactions = await cursor.to_list(length=1000)  # Limit to 1000 transactions
     
-    # Try to get Alchemy API key from environment
-    alchemy_api_key = os.environ.get("ALCHEMY_API_KEY", "")
-    if alchemy_api_key:
-        return f"https://base-mainnet.g.alchemy.com/v2/{alchemy_api_key}"
+    # Convert MongoDB ObjectId to string for serialization
+    for tx in transactions:
+        if "_id" in tx:
+            tx["_id"] = str(tx["_id"])
     
-    # Use Infura if available
-    infura_api_key = os.environ.get("INFURA_API_KEY", "")
-    if infura_api_key:
-        return f"https://base-mainnet.infura.io/v3/{infura_api_key}"
-    
-    # Default fallback
-    return DEFAULT_ENDPOINT
+    return transactions
 
 def fetch_solana_token_transactions(wallet_address: str) -> List[Dict[str, Any]]:
     """
     Fetch real token transactions for a Solana wallet
-    - This focuses on token transfers and swaps
+    - Uses the transaction indexer for improved range and DEX detection
     - Returns a list of processed transactions
-    - Falls back to demo data if RPC rate limits are reached
+    - Falls back to demo data if needed
     """
     logger.info(f"Fetching Solana transactions for wallet: {wallet_address}")
     
@@ -153,21 +146,47 @@ def fetch_solana_token_transactions(wallet_address: str) -> List[Dict[str, Any]]
         logger.info(f"Using cached transactions for {wallet_address}")
         return TRANSACTION_CACHE[cache_key]['data']
     
-    # Try to get real transactions
+    # Try to get real transactions using the indexer
     try:
-        # For demo purposes, we'll use demo data to avoid rate limits
-        logger.info("Using demo data due to RPC rate limits")
+        # Run the indexer to make sure we have the latest data
+        # This uses asyncio.run() because we're in a synchronous context
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            # Try to index the wallet transactions
+            count = loop.run_until_complete(index_wallet(wallet_address, "solana"))
+            logger.info(f"Indexed {count} new transactions for {wallet_address}")
+            
+            # Get the stored transactions
+            transactions = loop.run_until_complete(get_stored_transactions(wallet_address, "solana"))
+            logger.info(f"Retrieved {len(transactions)} transactions from storage")
+            
+            # If no transactions found but indexing ran, something went wrong
+            if not transactions and count > 0:
+                logger.warning(f"Indexer indicated {count} transactions but none found in storage")
+                raise ValueError("Indexed transactions not found in storage")
+            
+            # If transactions were found, cache and return them
+            if transactions:
+                TRANSACTION_CACHE[cache_key] = {
+                    'data': transactions,
+                    'timestamp': now
+                }
+                return transactions
+                
+        finally:
+            loop.close()
         
-        # Filter demo data for this wallet
+        # If we get here, no transactions were found or indexing failed
+        logger.warning(f"No transactions found for {wallet_address}, using demo data")
         transactions = [tx for tx in SOLANA_DEMO_DATA if tx["wallet_address"] == wallet_address]
         
-        # Cache the result
+        # Cache the demo data
         TRANSACTION_CACHE[cache_key] = {
             'data': transactions,
             'timestamp': now
         }
         
-        logger.info(f"Processed {len(transactions)} token transactions for {wallet_address}")
         return transactions
     
     except Exception as e:
@@ -178,90 +197,10 @@ def fetch_solana_token_transactions(wallet_address: str) -> List[Dict[str, Any]]
         transactions = [tx for tx in SOLANA_DEMO_DATA if tx["wallet_address"] == wallet_address]
         return transactions
 
-def process_solana_transaction(tx_data: Dict[str, Any], wallet_address: str) -> List[Dict[str, Any]]:
-    """
-    Process a Solana transaction to extract token transfers and swaps
-    - Focuses on SPL token transfers and DEX swaps
-    - Identifies buys and sells based on token balance changes
-    """
-    processed_txs = []
-    
-    try:
-        # Skip if no token balances
-        if not tx_data.get("meta") or "preTokenBalances" not in tx_data["meta"] or "postTokenBalances" not in tx_data["meta"]:
-            return []
-        
-        # Get pre/post token balances
-        pre_balances = {b.get("mint") + ":" + b.get("owner"): b for b in tx_data["meta"]["preTokenBalances"] if "mint" in b and "owner" in b}
-        post_balances = {b.get("mint") + ":" + b.get("owner"): b for b in tx_data["meta"]["postTokenBalances"] if "mint" in b and "owner" in b}
-        
-        timestamp = tx_data.get("blockTime", int(time.time()))
-        tx_hash = tx_data.get("transaction", {}).get("signatures", [""])[0]
-        
-        # Check for token transfers involving our wallet
-        all_mints = set()
-        for key in set(list(pre_balances.keys()) + list(post_balances.keys())):
-            if ":" + wallet_address in key:
-                mint = key.split(":")[0]
-                all_mints.add(mint)
-        
-        # Process each token mint
-        for mint in all_mints:
-            pre_key = mint + ":" + wallet_address
-            post_key = mint + ":" + wallet_address
-            
-            pre_amount = 0
-            if pre_key in pre_balances:
-                pre_amount = float(pre_balances[pre_key].get("uiTokenAmount", {}).get("uiAmount", 0) or 0)
-            
-            post_amount = 0
-            if post_key in post_balances:
-                post_amount = float(post_balances[post_key].get("uiTokenAmount", {}).get("uiAmount", 0) or 0)
-            
-            # Skip if no change
-            if pre_amount == post_amount:
-                continue
-            
-            # Determine if buy or sell
-            if post_amount > pre_amount:
-                tx_type = "buy"
-                amount = post_amount - pre_amount
-            else:
-                tx_type = "sell"
-                amount = pre_amount - post_amount
-            
-            # Look for payment info in the other token balances
-            payment_amount = 0
-            payment_token = "SOL"  # Default to SOL
-            
-            # TODO: Extract SOL payment from transaction logs
-            # For now, we'll estimate based on common DEX pools
-            
-            # Create transaction record
-            from token_finder import get_token_name
-            name, symbol = get_token_name(mint, "solana")
-            
-            processed_txs.append({
-                "tx_hash": tx_hash,
-                "wallet_address": wallet_address,
-                "token_address": mint,
-                "token_name": name,
-                "token_symbol": symbol,
-                "amount": amount,
-                "price": payment_amount / amount if amount > 0 and payment_amount > 0 else 0,
-                "timestamp": timestamp,
-                "type": tx_type
-            })
-    
-    except Exception as e:
-        logger.error(f"Error processing Solana transaction: {str(e)}")
-    
-    return processed_txs
-
 def fetch_base_token_transactions(wallet_address: str) -> List[Dict[str, Any]]:
     """
     Fetch real token transactions for a Base wallet
-    - Focuses on ERC20 token transfers and swaps
+    - Uses the transaction indexer for improved DEX detection
     - Returns a list of processed transactions
     - Falls back to demo data for testing
     """
@@ -273,18 +212,52 @@ def fetch_base_token_transactions(wallet_address: str) -> List[Dict[str, Any]]:
     if cache_key in TRANSACTION_CACHE and (now - TRANSACTION_CACHE[cache_key]['timestamp'] < CACHE_TTL):
         logger.info(f"Using cached transactions for {wallet_address}")
         return TRANSACTION_CACHE[cache_key]['data']
+    
+    # Try to get real transactions using the indexer
+    try:
+        # Run the indexer to make sure we have the latest data
+        # This uses asyncio.run() because we're in a synchronous context
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            # Try to index the wallet transactions
+            count = loop.run_until_complete(index_wallet(wallet_address, "base"))
+            logger.info(f"Indexed {count} new transactions for {wallet_address}")
+            
+            # Get the stored transactions
+            transactions = loop.run_until_complete(get_stored_transactions(wallet_address, "base"))
+            logger.info(f"Retrieved {len(transactions)} transactions from storage")
+            
+            # If transactions were found, cache and return them
+            if transactions:
+                TRANSACTION_CACHE[cache_key] = {
+                    'data': transactions,
+                    'timestamp': now
+                }
+                return transactions
+                
+        finally:
+            loop.close()
         
-    # For demo purposes, we'll use demo data
-    transactions = [tx for tx in BASE_DEMO_DATA if tx["wallet_address"].lower() == wallet_address.lower()]
+        # If we get here, no transactions were found or indexing failed
+        logger.warning(f"No transactions found for {wallet_address}, using demo data")
+        transactions = [tx for tx in BASE_DEMO_DATA if tx["wallet_address"].lower() == wallet_address.lower()]
+        
+        # Cache the result
+        TRANSACTION_CACHE[cache_key] = {
+            'data': transactions,
+            'timestamp': now
+        }
+        
+        return transactions
     
-    # Cache the result
-    TRANSACTION_CACHE[cache_key] = {
-        'data': transactions,
-        'timestamp': now
-    }
-    
-    logger.info(f"Processed {len(transactions)} token transactions for {wallet_address}")
-    return transactions
+    except Exception as e:
+        logger.error(f"Error fetching Base transactions: {str(e)}")
+        
+        # Return demo data as fallback
+        logger.info("Using demo data as fallback due to error")
+        transactions = [tx for tx in BASE_DEMO_DATA if tx["wallet_address"].lower() == wallet_address.lower()]
+        return transactions
 
 def fetch_wallet_transactions(wallet_address: str, blockchain: str) -> List[Dict[str, Any]]:
     """
