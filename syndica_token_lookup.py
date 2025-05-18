@@ -9,8 +9,8 @@ from typing import Dict, Any, Optional
 # The token address to look up
 TOKEN_ADDRESS = "5HyZiyaSsQt8VZBAJcULZhtykiVmkAkWLiQJCER9pump"
 
-# Syndica API key placeholder (replace with actual key)
-SYNDICA_API_KEY = "YOUR_API_KEY"
+# Syndica API key
+SYNDICA_API_KEY = "R6HKoYpyHfYchAyJBtSMRLmWg2cGeQRHAWJ9wLgSqCyvS173v2kcheZZ47gNteZshiaM6B1sgeS1737Dj4j5D2AAKpnXoipQhN"
 
 # Syndica endpoint
 SYNDICA_ENDPOINT = f"https://solana-mainnet.api.syndica.io/api-key/{SYNDICA_API_KEY}"
