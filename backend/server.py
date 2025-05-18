@@ -1251,7 +1251,7 @@ async def root():
 @api_router.post("/analyze")
 async def analyze_wallet(search_query: SearchQuery) -> TradeStats:
     """
-    Analyze a wallet's memecoin trades and return statistics
+    Analyze a wallet's token trades and return statistics using real blockchain data
     """
     wallet_address = search_query.wallet_address
     blockchain = search_query.blockchain
@@ -1265,36 +1265,8 @@ async def analyze_wallet(search_query: SearchQuery) -> TradeStats:
         raise HTTPException(status_code=400, detail="Invalid Ethereum/Base wallet address")
     
     try:
-        # Get transactions based on blockchain
-        if blockchain == "solana":
-            transactions = await get_solana_transactions(wallet_address)
-        else:  # blockchain == "base"
-            transactions = await get_base_transactions(wallet_address)
-        
-        # Log the actual transactions found
-        logger.info(f"Found {len(transactions)} transactions for {blockchain} wallet: {wallet_address}")
-        for tx in transactions[:5]:  # Log first 5 transactions for debugging
-            logger.info(f"Transaction: {tx['token_symbol']} {tx['type']} {tx['amount']} at {tx['price']}")
-        
-        # Don't show any results if no transactions found
-        if not transactions:
-            logger.info(f"No transactions found for {blockchain} wallet: {wallet_address}")
-            return TradeStats(
-                id=str(uuid.uuid4()),
-                wallet_address=wallet_address,
-                blockchain=blockchain,
-                best_trade_profit=0.0,
-                best_trade_token="",
-                best_multiplier=0.0,
-                best_multiplier_token="",
-                all_time_pnl=0.0,
-                worst_trade_loss=0.0,
-                worst_trade_token="",
-                timestamp=datetime.now()
-            )
-        
-        # Analyze trades
-        stats = await analyze_memecoin_trades(transactions)
+        # Use our enhanced scanner to analyze wallet transactions from real blockchain data
+        stats = await analyze_wallet_transactions(wallet_address, blockchain)
         
         # Create response
         result = TradeStats(
