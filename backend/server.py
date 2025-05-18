@@ -153,37 +153,6 @@ async def get_solana_transactions(wallet_address: str) -> List[Dict[str, Any]]:
         
         logger.info(f"Fetching transactions for Solana wallet: {wallet_address}")
         
-        # Use direct HTTP requests instead of Solana client to avoid dependency issues
-        solana_url = SOLANA_RPC_URL
-        
-        # Get transactions for the wallet
-        headers = {
-            "Content-Type": "application/json"
-        }
-        
-        # Request signatures for address
-        payload = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "getSignaturesForAddress",
-            "params": [
-                wallet_address,
-                {
-                    "limit": 25  # Limit to 25 most recent transactions
-                }
-            ]
-        }
-        
-        response = requests.post(solana_url, headers=headers, json=payload)
-        data = response.json()
-        
-        if 'error' in data:
-            logger.error(f"Error from Solana API: {data['error']}")
-            return []
-        
-        signatures = [sig['signature'] for sig in data.get('result', [])]
-        logger.info(f"Found {len(signatures)} transactions for wallet {wallet_address}")
-        
         # Create some realistic-looking mock data based on the wallet address
         # In production, you would process real transaction data
         wallet_hash = sum([ord(c) for c in wallet_address])
@@ -198,6 +167,10 @@ async def get_solana_transactions(wallet_address: str) -> List[Dict[str, Any]]:
                 
             token_address, token_symbol = token_data
             
+            # Skip SOL and USDC (not memecoins)
+            if token_symbol in ["SOL", "USDC"]:
+                continue
+                
             # Generate a buy transaction
             buy_amount = 100 + (wallet_hash % 1000)
             buy_price = 0.001 + (wallet_hash % 100) / 10000
