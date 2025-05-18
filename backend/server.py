@@ -170,20 +170,30 @@ async def get_solana_transactions(wallet_address: str) -> List[Dict[str, Any]]:
                     token_response = requests.post(SOLANA_RPC_URL, json=token_data_payload)
                     token_data = token_response.json()
                     
-                    # Use first 6 chars of mint as symbol if we can't get a better name
-                    token_symbol = mint[:6]
+                    # First check if we have a known name for this token
+                    if mint in SOLANA_TOKEN_NAMES:
+                        token_symbol = SOLANA_TOKEN_NAMES[mint]
+                        logger.info(f"Using known token name {token_symbol} for {mint}")
+                    # Otherwise use first 6 chars of mint as symbol if we can't get a better name
+                    else:
+                        token_symbol = mint[:6]
                     
-                    # Try to get a proper symbol through metadata
-                    try:
-                        # This is just a simplistic way to get token info
-                        # In a production environment, you'd use a better token metadata service
-                        if 'result' in token_data and 'symbol' in token_data.get('result', {}):
-                            token_symbol = token_data['result']['symbol']
-                    except:
-                        pass
+                    # Try to get a proper symbol through metadata if we don't have a known name
+                    if mint not in SOLANA_TOKEN_NAMES:
+                        try:
+                            # This is just a simplistic way to get token info
+                            # In a production environment, you'd use a better token metadata service
+                            if 'result' in token_data and 'symbol' in token_data.get('result', {}):
+                                token_symbol = token_data['result']['symbol']
+                        except:
+                            pass
                 except Exception as e:
                     logger.error(f"Error getting token info: {str(e)}")
-                    token_symbol = mint[:6]  # Use first 6 chars as fallback
+                    # First check if we have a known name for this token
+                    if mint in SOLANA_TOKEN_NAMES:
+                        token_symbol = SOLANA_TOKEN_NAMES[mint]
+                    else:
+                        token_symbol = mint[:6]  # Use first 6 chars as fallback
                 
                 # Get transactions for this token account
                 tx_payload = {
