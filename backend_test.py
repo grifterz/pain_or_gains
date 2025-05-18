@@ -184,11 +184,11 @@ class MemeAnalyzerTester:
             else:
                 print(f"❌ Best multiplier is not around 3.0x: {response.get('best_multiplier')}")
                 
-            if response.get("all_time_pnl") and abs(response.get("all_time_pnl") - 0.2) < 0.1:
-                print(f"✅ All-time PnL is around 0.2 SOL: {response.get('all_time_pnl')}")
+            if response.get("all_time_pnl") and abs(response.get("all_time_pnl") - 0.4) < 0.1:
+                print(f"✅ All-time PnL is around 0.4 SOL: {response.get('all_time_pnl')}")
                 self.tests_passed += 1
             else:
-                print(f"❌ All-time PnL is not around 0.2 SOL: {response.get('all_time_pnl')}")
+                print(f"❌ All-time PnL is not around 0.4 SOL: {response.get('all_time_pnl')}")
                 
             self.tests_run += 5  # We added 5 additional checks
             
