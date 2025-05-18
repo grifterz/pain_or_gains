@@ -97,6 +97,10 @@ class SearchQuery(BaseModel):
     
     @validator('wallet_address')
     def validate_address(cls, v, values):
+        # Only validate if blockchain is provided
+        if 'blockchain' not in values:
+            return v
+            
         blockchain = values.get('blockchain', 'solana').lower()
         if blockchain == 'solana' and not is_valid_solana_address(v):
             raise ValueError("Invalid Solana wallet address")
