@@ -529,14 +529,13 @@ async def get_base_transactions(wallet_address: str) -> List[Dict[str, Any]]:
                     "method": "alchemy_getAssetTransfers",
                     "params": [
                         {
-                            "fromBlock": "0x0",
+                            "fromBlock": "0x0",  # From genesis block (all history)
                             "toBlock": "latest",
                             "category": ["erc20"],
                             "contractAddresses": [token_address],
                             "withMetadata": True,
                             "excludeZeroValue": True,
-                            "maxCount": "0x1E",  # Limit to 30 transfers (0x1E = 30 in hex)
-                            "excludeZeroValue": True,
+                            "maxCount": "0x64",  # Increase to 100 transfers (0x64 = 100 in hex)
                             "order": "desc"  # Most recent first
                         }
                     ]
