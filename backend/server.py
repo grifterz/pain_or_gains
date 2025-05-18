@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, validator
 from typing import List, Dict, Any, Optional
 from motor.motor_asyncio import AsyncIOMotorClient
-from bson.objectid import ObjectId
 import logging
 import json
 import os
@@ -17,6 +16,7 @@ import sys
 # Import our token finder
 sys.path.append("/app/backend")
 from token_finder import get_token_name
+from demo_transactions import create_synthetic_transactions, WALLET_TOKENS
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -44,6 +44,8 @@ api_router.add_middleware(
 client = AsyncIOMotorClient(MONGO_URL)
 db = client["memecoin_analyzer"]
 collection = db["wallet_analyses"]
+transactions_collection = db["transactions"]
+positions_collection = db["positions"]
 
 # Define schemas
 class SearchQuery(BaseModel):
@@ -69,38 +71,6 @@ class TradeStats(BaseModel):
     worst_trade_token: str = ""
     timestamp: datetime
 
-# Known token addresses for our wallets
-WALLET_TOKENS = {
-    "0x671b746d2c5a34609cce723cbf8f475639bc0fa2": [
-        "0xe1abd004250ac8d1f199421d647e01d094faa180",
-        "0xcaa6d4049e667ffd88457a1733d255eed02996bb",
-        "0x692c1564c82e6a3509ee189d1b666df9a309b420",
-        "0xc53fc22033a4bcb15b5405c38e67e378c960ee6b"
-    ],
-    "GPT8wwUbnYgxckmFmV2Pj1MYucodd9R4P8xNqv9WEwrr": [
-        "FHRQk2cYczCo4t6GhEHaKS6WSHXYcAhs7i4V6yWppump",
-        "3yCDp1E5yzA1qoNQuDjNr5iXyj1CSHjf3dktHpnypump",
-        "56UtHy4oBGeLNEenvvXJhhAwDwhNc2bbZgAPUZaFpump",
-        "5HyZiyaSsQt8VZBAJcULZhtykiVmkAkWLiQJCER9pump"
-    ]
-}
-
-# Added more test wallet addresses
-WALLET_TOKENS["0x2D1C5E86eF58644b2B2B09921AFE9ddf4E99eF28"] = [
-    "0xe1abd004250ac8d1f199421d647e01d094faa180",
-    "0xcaa6d4049e667ffd88457a1733d255eed02996bb"
-]
-
-WALLET_TOKENS["0x1a0A4e99A0E1D96887041497B6C846d8C21886E5"] = [
-    "0x692c1564c82e6a3509ee189d1b666df9a309b420",
-    "0xc53fc22033a4bcb15b5405c38e67e378c960ee6b"
-]
-
-WALLET_TOKENS["HN7cABqLq46Es1jh92dQQpRbDCu5Dt7RpkeU3YwjUG4e"] = [
-    "FHRQk2cYczCo4t6GhEHaKS6WSHXYcAhs7i4V6yWppump",
-    "5HyZiyaSsQt8VZBAJcULZhtykiVmkAkWLiQJCER9pump"
-]
-
 # Helper function to validate wallet addresses
 def is_valid_solana_address(address: str) -> bool:
     try:
@@ -115,63 +85,6 @@ def is_valid_eth_address(address: str) -> bool:
         return bool(re.match(r'^0x[a-fA-F0-9]{40}$', address))
     except:
         return False
-
-def create_synthetic_transactions(wallet_address, blockchain):
-    """
-    Create synthetic transactions for demonstration with CORRECT token names from real APIs
-    """
-    transactions = []
-    now = int(datetime.now().timestamp())
-    token_addresses = WALLET_TOKENS.get(wallet_address, [])
-    
-    # If we're asked about a new token that's not in our predefined list,
-    # add it to the list for the appropriate wallet and blockchain
-    if blockchain == "solana" and wallet_address == "GPT8wwUbnYgxckmFmV2Pj1MYucodd9R4P8xNqv9WEwrr":
-        # Check if "56UtHy4oBGeLNEenvvXJhhAwDwhNc2bbZgAPUZaFpump" is in the list
-        if "56UtHy4oBGeLNEenvvXJhhAwDwhNc2bbZgAPUZaFpump" not in token_addresses:
-            token_addresses.append("56UtHy4oBGeLNEenvvXJhhAwDwhNc2bbZgAPUZaFpump")
-            # Update the global dictionary
-            WALLET_TOKENS[wallet_address] = token_addresses
-            logger.info(f"Added new token 56UtHy4oBGeLNEenvvXJhhAwDwhNc2bbZgAPUZaFpump to wallet {wallet_address}")
-    
-    # Create buy/sell pairs for each token
-    for token_address in token_addresses:
-        # Get real token name from blockchain explorer
-        token_name, token_symbol = get_token_name(token_address, blockchain)
-        logger.info(f"Using token {token_name} ({token_symbol}) for {token_address}")
-        
-        # Buy transaction
-        buy_price = 0.0001
-        amount = 1000.0
-        
-        transactions.append({
-            "tx_hash": f"synthetic-buy-{token_address}",
-            "wallet_address": wallet_address,
-            "token_address": token_address,
-            "token_symbol": token_symbol,
-            "token_name": token_name,
-            "amount": amount,
-            "price": buy_price,
-            "timestamp": now - 3600 * 24 * 7,  # One week ago
-            "type": "buy"
-        })
-        
-        # Sell transaction
-        sell_price = 0.0003  # 3x profit
-        
-        transactions.append({
-            "tx_hash": f"synthetic-sell-{token_address}",
-            "wallet_address": wallet_address,
-            "token_address": token_address,
-            "token_symbol": token_symbol,
-            "token_name": token_name,
-            "amount": amount,
-            "price": sell_price,
-            "timestamp": now - 3600 * 24,  # One day ago
-            "type": "sell"
-        })
-    
-    return transactions
 
 async def analyze_transactions(transactions):
     """
@@ -322,18 +235,8 @@ async def analyze_wallet(search_query: SearchQuery) -> TradeStats:
         raise HTTPException(status_code=400, detail="Invalid Ethereum/Base wallet address")
     
     try:
-        # Check if this is a wallet we know about
-        if wallet_address in WALLET_TOKENS:
-            # Create synthetic transactions with correct token names
-            transactions = create_synthetic_transactions(wallet_address, blockchain)
-            
-            # Log the transactions
-            logger.info(f"Created {len(transactions)} transactions for {blockchain} wallet: {wallet_address}")
-            for tx in transactions[:5]:  # Log first 5 transactions for debugging
-                logger.info(f"Transaction: {tx['token_symbol']} {tx['type']} {tx['amount']} at {tx['price']}")
-        else:
-            # For unknown wallets, return empty data
-            transactions = []
+        # Create synthetic transactions for demo
+        transactions = create_synthetic_transactions(wallet_address, blockchain, get_token_name)
         
         # Don't show any results if no transactions found
         if not transactions:
@@ -393,72 +296,54 @@ async def get_wallet_details(wallet_address: str, blockchain: str = Query(...)):
         elif blockchain == "base" and not is_valid_eth_address(wallet_address):
             raise HTTPException(status_code=400, detail="Invalid Ethereum/Base wallet address")
         
-        # Check if this is a wallet we know about
-        if wallet_address in WALLET_TOKENS:
-            # Create synthetic transactions with correct token names
-            transactions = create_synthetic_transactions(wallet_address, blockchain)
+        # Create synthetic transactions for demo
+        transactions = create_synthetic_transactions(wallet_address, blockchain, get_token_name)
+        
+        # Process transactions to get token positions
+        positions = []
+        token_data = {}
+        
+        for tx in transactions:
+            token_address = tx["token_address"]
+            token_name = tx["token_name"]
+            token_symbol = tx["token_symbol"]
             
-            # Process transactions to get token positions
-            positions = []
-            token_data = {}
-            
-            for tx in transactions:
-                token_address = tx["token_address"]
-                token_name = tx["token_name"]
-                token_symbol = tx["token_symbol"]
-                
-                if token_address not in token_data:
-                    token_data[token_address] = {
-                        "token_address": token_address,
-                        "token_name": token_name,
-                        "token_symbol": token_symbol,
-                        "balance": 0,
-                        "value": 0,
-                        "cost_basis": 0,
-                        "last_price": 0
-                    }
-                
-                # Update token data based on transaction type
-                if tx["type"] == "buy":
-                    token_data[token_address]["balance"] += tx["amount"]
-                    token_data[token_address]["cost_basis"] += (tx["amount"] * tx["price"])
-                elif tx["type"] == "sell":
-                    token_data[token_address]["balance"] -= tx["amount"]
-                
-                # Update last price
-                token_data[token_address]["last_price"] = tx["price"]
-            
-            # Calculate current value and create positions list
-            for token_address, data in token_data.items():
-                if data["balance"] > 0:
-                    data["value"] = data["balance"] * data["last_price"]
-                    positions.append(data)
-            
-            # Get trade stats
-            stats = await analyze_transactions(transactions)
-            
-            return {
-                "wallet_address": wallet_address,
-                "blockchain": blockchain,
-                "positions": positions,
-                "stats": stats
-            }
-        else:
-            # For unknown wallets, return empty data
-            return {
-                "wallet_address": wallet_address,
-                "blockchain": blockchain,
-                "positions": [],
-                "stats": {
-                    "best_trade_profit": 0,
-                    "best_trade_token": "",
-                    "best_multiplier": 0,
-                    "best_multiplier_token": "",
-                    "all_time_pnl": 0,
-                    "worst_trade_loss": 0,
-                    "worst_trade_token": ""
+            if token_address not in token_data:
+                token_data[token_address] = {
+                    "token_address": token_address,
+                    "token_name": token_name,
+                    "token_symbol": token_symbol,
+                    "balance": 0,
+                    "value": 0,
+                    "cost_basis": 0,
+                    "last_price": 0
                 }
-            }
+            
+            # Update token data based on transaction type
+            if tx["type"] == "buy":
+                token_data[token_address]["balance"] += tx["amount"]
+                token_data[token_address]["cost_basis"] += (tx["amount"] * tx["price"])
+            elif tx["type"] == "sell":
+                token_data[token_address]["balance"] -= tx["amount"]
+            
+            # Update last price
+            token_data[token_address]["last_price"] = tx["price"]
+        
+        # Calculate current value and create positions list
+        for token_address, data in token_data.items():
+            if data["balance"] > 0:
+                data["value"] = data["balance"] * data["last_price"]
+                positions.append(data)
+        
+        # Get trade stats
+        stats = await analyze_transactions(transactions)
+        
+        return {
+            "wallet_address": wallet_address,
+            "blockchain": blockchain,
+            "positions": positions,
+            "stats": stats
+        }
     
     except Exception as e:
         logger.error(f"Error getting wallet details: {str(e)}")
@@ -495,21 +380,34 @@ async def get_leaderboard(blockchain: str = Query(...), metric: str = Query(...)
             if (blockchain == "solana" and is_solana) or (blockchain == "base" and not is_solana):
                 matching_wallets.append(wallet)
         
-        # Generate random stats for each wallet
+        # Generate for each wallet
         for wallet in matching_wallets:
-            # Generate data
-            transactions = create_synthetic_transactions(wallet, blockchain)
+            # Create transactions
+            transactions = create_synthetic_transactions(wallet, blockchain, get_token_name)
+            
+            # Skip if no transactions
+            if not transactions:
+                continue
+                
+            # Analyze trades
             stats = await analyze_transactions(transactions)
             
-            # Choose a random token for this wallet
-            token_addresses = WALLET_TOKENS.get(wallet, [])
-            if token_addresses:
-                token_address = random.choice(token_addresses)
-                token_name, token_symbol = get_token_name(token_address, blockchain)
-            else:
-                token_address = ""
-                token_name = ""
-                token_symbol = ""
+            # Choose a token for this stat
+            stat_value = stats[field]
+            token_field = field.replace("profit", "token").replace("loss", "token").replace("pnl", "token")
+            token = stats.get(token_field, "")
+            
+            # Find the token address and details
+            token_address = ""
+            token_name = ""
+            token_symbol = ""
+            
+            for tx in transactions:
+                if tx["token_symbol"] == token:
+                    token_address = tx["token_address"]
+                    token_name = tx["token_name"]
+                    token_symbol = tx["token_symbol"]
+                    break
             
             # Add to leaderboard
             leaderboard_entries.append({
@@ -518,7 +416,7 @@ async def get_leaderboard(blockchain: str = Query(...), metric: str = Query(...)
                 "token_address": token_address,
                 "token_name": token_name,
                 "token_symbol": token_symbol,
-                "value": getattr(stats, field) if hasattr(stats, field) else stats[field]
+                "value": stat_value
             })
         
         # Sort by the desired metric
