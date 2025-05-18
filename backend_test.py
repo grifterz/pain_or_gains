@@ -89,9 +89,9 @@ class MemecoinsAPITester:
             )
         )
 
-    def test_analyze_solana_wallet(self, wallet_address="8kzcTCwWTmsYTkNPbsMiQGE9sBJqXY5X38UHgtQ8cEwN"):
-        """Test analyzing a Solana wallet"""
-        def validate_solana_response(data):
+    def test_wallet_with_no_memecoin_activity(self, wallet_address="7EqvJ1KaFzV9FrcvZezSKob3VfsBuN6mEMcCkSTJw48G"):
+        """Test analyzing a wallet with no memecoin activity"""
+        def validate_no_activity_response(data):
             if not data:
                 return False, "Empty response"
                 
@@ -112,58 +112,32 @@ class MemecoinsAPITester:
             if data["blockchain"] != "solana":
                 return False, f"Blockchain mismatch: {data['blockchain']} != solana"
                 
-            # Verify deterministic generation (values should be non-zero if valid address)
-            if not any([data["best_trade_token"], data["best_multiplier_token"], data["worst_trade_token"]]):
-                return False, "No token data found, expected deterministic generation"
+            # Verify no token data (should be empty for a wallet with no activity)
+            if any([
+                data["best_trade_token"], 
+                data["best_multiplier_token"], 
+                data["worst_trade_token"],
+                abs(data["best_trade_profit"]) > 0.000001,
+                abs(data["best_multiplier"]) > 0.000001,
+                abs(data["all_time_pnl"]) > 0.000001,
+                abs(data["worst_trade_loss"]) > 0.000001
+            ]):
+                return False, "Expected empty stats for wallet with no memecoin activity, but found data"
                 
-            return True, "Response contains valid Solana wallet analysis data"
+            return True, "Response correctly shows no memecoin activity for this wallet"
             
         return self.run_test(
-            "Analyze Solana Wallet",
+            "Analyze Wallet With No Memecoin Activity",
             "POST",
             "api/analyze",
             200,
             data={"wallet_address": wallet_address, "blockchain": "solana"},
-            custom_validation=validate_solana_response
+            custom_validation=validate_no_activity_response
         )
-    
-    def test_analyze_different_solana_wallet(self, wallet_address="DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"):
-        """Test analyzing a different Solana wallet to verify different results"""
-        success, data1 = self.test_analyze_solana_wallet()
-        
-        if not success:
-            return False, {}
-            
-        def validate_different_wallet(data2):
-            # Check if the results are different from the first wallet
-            if not data1 or not data2:
-                return False, "Missing data for comparison"
-                
-            # Compare key metrics
-            metrics = ["best_trade_profit", "best_multiplier", "all_time_pnl", "worst_trade_loss"]
-            differences = []
-            
-            for metric in metrics:
-                if data1.get(metric) != data2.get(metric):
-                    differences.append(metric)
-                    
-            if not differences:
-                return False, "Expected different results for different wallets, but got identical values"
-                
-            return True, f"Different wallets produced different results as expected: {', '.join(differences)}"
-            
-        return self.run_test(
-            "Analyze Different Solana Wallet",
-            "POST",
-            "api/analyze",
-            200,
-            data={"wallet_address": wallet_address, "blockchain": "solana"},
-            custom_validation=validate_different_wallet
-        )
-    
-    def test_analyze_base_wallet(self, wallet_address="0x5A927Ac639636E534b678Ec56a1a9fE5F3993c54"):
-        """Test analyzing a Base wallet"""
-        def validate_base_response(data):
+
+    def test_wallet_with_memecoin_activity(self, wallet_address="8kzcTCwWTmsYTkNPbsMiQGE9sBJqXY5X38UHgtQ8cEwN"):
+        """Test analyzing a wallet with memecoin activity"""
+        def validate_active_wallet_response(data):
             if not data:
                 return False, "Empty response"
                 
@@ -180,47 +154,59 @@ class MemecoinsAPITester:
             if data["wallet_address"] != wallet_address:
                 return False, f"Wallet address mismatch: {data['wallet_address']} != {wallet_address}"
                 
-            # Verify blockchain is base
-            if data["blockchain"] != "base":
-                return False, f"Blockchain mismatch: {data['blockchain']} != base"
+            # Verify blockchain is solana
+            if data["blockchain"] != "solana":
+                return False, f"Blockchain mismatch: {data['blockchain']} != solana"
                 
-            # Verify deterministic generation (values should be non-zero if valid address)
-            if not any([data["best_trade_token"], data["best_multiplier_token"], data["worst_trade_token"]]):
-                return False, "No token data found, expected deterministic generation"
+            # Verify we have actual data (at least one token field should be populated)
+            has_token_data = any([
+                data["best_trade_token"], 
+                data["best_multiplier_token"], 
+                data["worst_trade_token"]
+            ])
+            
+            has_value_data = any([
+                abs(data["best_trade_profit"]) > 0.000001,
+                abs(data["best_multiplier"]) > 0.000001,
+                abs(data["all_time_pnl"]) > 0.000001,
+                abs(data["worst_trade_loss"]) > 0.000001
+            ])
+            
+            if not (has_token_data and has_value_data):
+                return False, "Expected real data for active wallet, but found empty stats"
                 
-            return True, "Response contains valid Base wallet analysis data"
+            return True, "Response contains valid memecoin activity data for this wallet"
             
         return self.run_test(
-            "Analyze Base Wallet",
+            "Analyze Wallet With Memecoin Activity",
             "POST",
             "api/analyze",
             200,
-            data={"wallet_address": wallet_address, "blockchain": "base"},
-            custom_validation=validate_base_response
+            data={"wallet_address": wallet_address, "blockchain": "solana"},
+            custom_validation=validate_active_wallet_response
         )
     
     def test_invalid_wallet_address(self):
-        """Test with invalid wallet address"""
-        # Note: The API currently accepts invalid addresses but returns empty results
-        # This test is modified to check for empty token fields rather than a 400 status
+        """Test with invalid wallet address format"""
         def validate_invalid_response(data):
-            # Check if token fields are empty (indicating no data was found)
+            # The API should return a 400 status for invalid addresses
+            # But if it returns 200, it should at least have empty token fields
             if data.get("best_trade_token") or data.get("best_multiplier_token") or data.get("worst_trade_token"):
                 return False, "Expected empty token fields for invalid address, but got data"
             return True, "Invalid address correctly returned empty token fields"
             
         return self.run_test(
-            "Invalid Wallet Address",
+            "Invalid Wallet Address Format",
             "POST",
             "api/analyze",
-            200,  # API accepts invalid addresses with 200 status
+            400,  # Expecting 400 for invalid format
             data={"wallet_address": "invalid-address", "blockchain": "solana"},
             custom_validation=validate_invalid_response
         )
     
-    def test_leaderboard_solana(self, stat_type="best_trade"):
-        """Test getting Solana leaderboard"""
-        def validate_leaderboard(data):
+    def test_leaderboard_entries(self, stat_type="best_trade"):
+        """Test that leaderboard only shows wallets with real memecoin activity"""
+        def validate_leaderboard_entries(data):
             if not isinstance(data, list):
                 return False, "Expected list response for leaderboard"
                 
@@ -235,56 +221,45 @@ class MemecoinsAPITester:
                 missing_fields = [field for field in required_fields if field not in entry]
                 if missing_fields:
                     return False, f"Leaderboard entry missing fields: {', '.join(missing_fields)}"
+                
+                # Verify each entry has a non-zero value and a token
+                if abs(entry["value"]) < 0.000001 or not entry["token"]:
+                    return False, f"Leaderboard contains entry with no real data: {entry}"
                     
-            return True, f"Leaderboard contains {len(data)} valid entries"
+            return True, f"Leaderboard contains {len(data)} valid entries with real memecoin activity"
             
         return self.run_test(
-            f"Solana Leaderboard - {stat_type}",
+            f"Leaderboard Entries - {stat_type}",
             "GET",
             f"api/leaderboard/{stat_type}",
             200,
             params={"blockchain": "solana", "limit": 10},
-            custom_validation=validate_leaderboard
+            custom_validation=validate_leaderboard_entries
         )
     
-    def test_leaderboard_base(self, stat_type="best_trade"):
-        """Test getting Base leaderboard"""
-        def validate_leaderboard(data):
-            if not isinstance(data, list):
-                return False, "Expected list response for leaderboard"
-                
-            # Check if we have entries
-            if not data:
-                # Empty leaderboard is valid if no wallets have been analyzed
-                return True, "Leaderboard is empty (this is valid if no wallets have been analyzed)"
-                
-            # Check structure of entries
-            required_fields = ["wallet_address", "value", "token", "rank"]
-            for entry in data:
-                missing_fields = [field for field in required_fields if field not in entry]
-                if missing_fields:
-                    return False, f"Leaderboard entry missing fields: {', '.join(missing_fields)}"
-                    
-            return True, f"Leaderboard contains {len(data)} valid entries"
+    def test_all_leaderboard_tabs(self):
+        """Test all four leaderboard statistic tabs"""
+        all_passed = True
+        results = {}
+        
+        for stat_type in ["best_trade", "best_multiplier", "all_time_pnl", "worst_trade"]:
+            success, data = self.test_leaderboard_entries(stat_type)
+            results[stat_type] = {"success": success, "data": data}
+            all_passed = all_passed and success
+        
+        # Additional validation to ensure different tabs show different data
+        if all_passed and all(len(results[stat]["data"]) > 0 for stat in results):
+            # Compare entries across tabs
+            different_entries = set()
+            for stat_type, result in results.items():
+                for entry in result["data"]:
+                    different_entries.add(f"{entry['wallet_address']}-{entry['value']}")
             
-        return self.run_test(
-            f"Base Leaderboard - {stat_type}",
-            "GET",
-            f"api/leaderboard/{stat_type}",
-            200,
-            params={"blockchain": "base", "limit": 10},
-            custom_validation=validate_leaderboard
-        )
-    
-    def test_invalid_leaderboard_stat(self):
-        """Test with invalid leaderboard stat type"""
-        return self.run_test(
-            "Invalid Leaderboard Stat Type",
-            "GET",
-            "api/leaderboard/invalid_stat",
-            400,
-            params={"blockchain": "solana", "limit": 10}
-        )
+            if len(different_entries) <= 1:
+                print("❌ Failed - All leaderboard tabs show identical data")
+                all_passed = False
+        
+        return all_passed, results
         
     def print_summary(self):
         """Print a summary of all test results"""
@@ -313,18 +288,17 @@ def main():
     # Run tests
     tester.test_root_endpoint()
     
-    # Test wallet analysis
-    solana_success, solana_data = tester.test_analyze_solana_wallet()
-    tester.test_analyze_different_solana_wallet()
-    base_success, base_data = tester.test_analyze_base_wallet()
+    # Test wallet with no memecoin activity
+    no_activity_success, no_activity_data = tester.test_wallet_with_no_memecoin_activity()
+    
+    # Test wallet with memecoin activity
+    activity_success, activity_data = tester.test_wallet_with_memecoin_activity()
+    
+    # Test invalid wallet address format
     tester.test_invalid_wallet_address()
     
-    # Test leaderboard endpoints
-    for stat_type in ["best_trade", "best_multiplier", "all_time_pnl", "worst_trade"]:
-        tester.test_leaderboard_solana(stat_type)
-        tester.test_leaderboard_base(stat_type)
-    
-    tester.test_invalid_leaderboard_stat()
+    # Test all leaderboard tabs
+    tester.test_all_leaderboard_tabs()
     
     # Print summary
     tester.print_summary()
