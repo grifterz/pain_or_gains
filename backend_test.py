@@ -63,7 +63,7 @@ class MemecoinsAPITester:
             data={"wallet_address": wallet_address, "blockchain": "solana"}
         )
     
-    def test_analyze_base_wallet(self, wallet_address="0x742d35Cc6634C0532925a3b844Bc454e4438f44e"):
+    def test_analyze_base_wallet(self, wallet_address="0x5A927Ac639636E534b678Ec56a1a9fE5F3993c54"):
         """Test analyzing a Base wallet"""
         return self.run_test(
             "Analyze Base Wallet",
