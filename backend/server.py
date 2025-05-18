@@ -74,11 +74,25 @@ KNOWN_BASE_TOKENS = {
     ]
 }
 
+# Token name mappings
+BASE_TOKEN_NAMES = {
+    "0xe1abd004250ac8d1f199421d647e01d094faa180": "BASED",
+    "0xcaa6d4049e667ffd88457a1733d255eed02996bb": "MEME",
+    "0x692c1564c82e6a3509ee189d1b666df9a309b420": "BALD",
+    "0xc53fc22033a4bcb15b5405c38e67e378c960ee6b": "DEGEN"
+}
+
 KNOWN_SOLANA_TOKENS = {
     "GPT8wwUbnYgxckmFmV2Pj1MYucodd9R4P8xNqv9WEwrr": [
         "FHRQk2cYczCo4t6GhEHaKS6WSHXYcAhs7i4V6yWppump",
         "3yCDp1E5yzA1qoNQuDjNr5iXyj1CSHjf3dktHpnypump"
     ]
+}
+
+# Solana token name mappings
+SOLANA_TOKEN_NAMES = {
+    "FHRQk2cYczCo4t6GhEHaKS6WSHXYcAhs7i4V6yWppump": "PUMP",  
+    "3yCDp1E5yzA1qoNQuDjNr5iXyj1CSHjf3dktHpnypump": "PUMP2"
 }
 
 # Helper function to validate wallet addresses
