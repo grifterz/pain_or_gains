@@ -5,7 +5,7 @@ import sys
 import re
 
 # Define API endpoint
-BASE_URL = "http://localhost:8001"
+BASE_URL = "https://994f8226-f44b-42aa-9a0f-715c84fc22e4.preview.emergentagent.com"
 
 class MemecoinsAPITester:
     def __init__(self):
