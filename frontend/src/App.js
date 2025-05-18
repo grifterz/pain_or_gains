@@ -432,7 +432,7 @@ const Home = () => {
           <Leaderboard />
         ) : (
           results ? (
-            results.best_trade_token || results.best_multiplier_token || results.worst_trade_token ? 
+            hasWalletData(results) ? 
             <Results results={results} /> : 
             <NoWalletData />
           ) : (
