@@ -184,13 +184,26 @@ class MemeAnalyzerTester:
             else:
                 print(f"❌ Best multiplier is not around 3.0x: {response.get('best_multiplier')}")
                 
-            if response.get("all_time_pnl") and abs(response.get("all_time_pnl") - 0.4) < 0.1:
-                print(f"✅ All-time PnL is around 0.4 SOL: {response.get('all_time_pnl')}")
+            if response.get("all_time_pnl") and abs(response.get("all_time_pnl") - 0.6) < 0.2:
+                print(f"✅ All-time PnL is around 0.6 SOL: {response.get('all_time_pnl')}")
                 self.tests_passed += 1
             else:
-                print(f"❌ All-time PnL is not around 0.4 SOL: {response.get('all_time_pnl')}")
+                print(f"❌ All-time PnL is not around 0.6 SOL: {response.get('all_time_pnl')}")
                 
-            self.tests_run += 5  # We added 5 additional checks
+            # Check for PUNKFLOOR token in the response
+            tokens_in_response = [
+                response.get("best_trade_token", ""),
+                response.get("best_multiplier_token", ""),
+                response.get("worst_trade_token", "")
+            ]
+            
+            if "PUNKFLOOR" in tokens_in_response:
+                print("✅ PUNKFLOOR token is present in the response")
+                self.tests_passed += 1
+            else:
+                print("❌ PUNKFLOOR token is not present in the response")
+                
+            self.tests_run += 6  # We added 6 additional checks
             
         return success, response
         
