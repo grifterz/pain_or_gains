@@ -715,6 +715,12 @@ async def analyze_wallet(search_query: SearchQuery) -> TradeStats:
     
     logger.info(f"Analyzing {blockchain} wallet: {wallet_address}")
     
+    # Extra validation check to catch invalid addresses
+    if blockchain == "solana" and not is_valid_solana_address(wallet_address):
+        raise HTTPException(status_code=400, detail="Invalid Solana wallet address")
+    elif blockchain == "base" and not is_valid_eth_address(wallet_address):
+        raise HTTPException(status_code=400, detail="Invalid Ethereum/Base wallet address")
+    
     try:
         # Get transactions based on blockchain
         if blockchain == "solana":
