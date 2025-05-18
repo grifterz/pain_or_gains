@@ -33,7 +33,8 @@ BASE_TOKEN_FALLBACKS = {
 SOLANA_TOKEN_FALLBACKS = {
     "FHRQk2cYczCo4t6GhEHaKS6WSHXYcAhs7i4V6yWppump": {"name": "JewCoin", "symbol": "JEWCOIN"},
     "3yCDp1E5yzA1qoNQuDjNr5iXyj1CSHjf3dktHpnypump": {"name": "PumpCoin", "symbol": "PUMP"},
-    "56UtHy4oBGeLNEenvvXJhhAwDwhNc2bbZgAPUZaFpump": {"name": "Punk Floor", "symbol": "PUNKFLOOR"}
+    "56UtHy4oBGeLNEenvvXJhhAwDwhNc2bbZgAPUZaFpump": {"name": "Punk Floor", "symbol": "PUNKFLOOR"},
+    "5HyZiyaSsQt8VZBAJcULZhtykiVmkAkWLiQJCER9pump": {"name": "Unknown", "symbol": "UNKNOWN"}
 }
 
 async def fetch_solana_token_info(session, token_address) -> Dict[str, Any]:
