@@ -380,6 +380,16 @@ const Leaderboard = () => {
   );
 };
 
+// Check if wallet has real memecoin data
+const hasWalletData = (data) => {
+  return Boolean(
+    data.best_trade_token || 
+    data.best_multiplier_token || 
+    data.worst_trade_token || 
+    Math.abs(data.all_time_pnl) > 0.000001
+  );
+};
+
 // No wallets found component
 const NoWalletData = () => {
   return (
