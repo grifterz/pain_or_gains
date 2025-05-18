@@ -13,10 +13,10 @@ import random
 from datetime import datetime
 import sys
 
-# Import our token finder
+# Import our token finder and blockchain fetcher
 sys.path.append("/app/backend")
 from token_finder import get_token_name
-from demo_transactions import create_synthetic_transactions, WALLET_TOKENS
+from blockchain_fetcher import fetch_wallet_transactions
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -46,6 +46,7 @@ db = client["memecoin_analyzer"]
 collection = db["wallet_analyses"]
 transactions_collection = db["transactions"]
 positions_collection = db["positions"]
+wallets_collection = db["wallets"]
 
 # Define schemas
 class SearchQuery(BaseModel):
@@ -85,6 +86,43 @@ def is_valid_eth_address(address: str) -> bool:
         return bool(re.match(r'^0x[a-fA-F0-9]{40}$', address))
     except:
         return False
+
+async def store_transactions(wallet_address: str, blockchain: str, transactions: List[Dict[str, Any]]):
+    """
+    Store wallet transactions in MongoDB
+    """
+    if not transactions:
+        return
+    
+    logger.info(f"Storing {len(transactions)} transactions for {blockchain} wallet: {wallet_address}")
+    
+    # Store each transaction
+    for tx in transactions:
+        # Use tx_hash as a unique identifier
+        await transactions_collection.update_one(
+            {"tx_hash": tx["tx_hash"], "wallet_address": wallet_address},
+            {"$set": tx},
+            upsert=True
+        )
+    
+    # Update wallet record
+    await wallets_collection.update_one(
+        {"address": wallet_address, "blockchain": blockchain},
+        {
+            "$set": {
+                "last_updated": datetime.now(),
+                "transaction_count": len(transactions)
+            }
+        },
+        upsert=True
+    )
+
+async def get_stored_transactions(wallet_address: str, blockchain: str) -> List[Dict[str, Any]]:
+    """
+    Get stored transactions for a wallet from MongoDB
+    """
+    cursor = transactions_collection.find({"wallet_address": wallet_address})
+    return await cursor.to_list(length=1000)  # Limit to 1000 transactions
 
 async def analyze_transactions(transactions):
     """
@@ -246,8 +284,25 @@ async def analyze_wallet(search_query: SearchQuery) -> TradeStats:
         raise HTTPException(status_code=400, detail="Invalid Ethereum/Base wallet address")
     
     try:
-        # Create synthetic transactions for demo
-        transactions = create_synthetic_transactions(wallet_address, blockchain, get_token_name)
+        # Check if we have cached wallet data
+        wallet_doc = await wallets_collection.find_one({"address": wallet_address, "blockchain": blockchain})
+        
+        # Get transactions - either from cache or fetch new ones
+        if wallet_doc and "last_updated" in wallet_doc:
+            last_updated = wallet_doc["last_updated"]
+            if (datetime.now() - last_updated).total_seconds() < 3600:  # 1 hour cache
+                logger.info(f"Using cached transactions for {wallet_address}")
+                transactions = await get_stored_transactions(wallet_address, blockchain)
+            else:
+                # Refresh if data is over an hour old
+                logger.info(f"Refreshing transactions for {wallet_address}")
+                transactions = fetch_wallet_transactions(wallet_address, blockchain)
+                await store_transactions(wallet_address, blockchain, transactions)
+        else:
+            # Fetch new transactions
+            logger.info(f"Fetching new transactions for {wallet_address}")
+            transactions = fetch_wallet_transactions(wallet_address, blockchain)
+            await store_transactions(wallet_address, blockchain, transactions)
         
         # Don't show any results if no transactions found
         if not transactions:
@@ -307,8 +362,25 @@ async def get_wallet_details(wallet_address: str, blockchain: str = Query(...)):
         elif blockchain == "base" and not is_valid_eth_address(wallet_address):
             raise HTTPException(status_code=400, detail="Invalid Ethereum/Base wallet address")
         
-        # Create synthetic transactions for demo
-        transactions = create_synthetic_transactions(wallet_address, blockchain, get_token_name)
+        # Check if we have cached wallet data
+        wallet_doc = await wallets_collection.find_one({"address": wallet_address, "blockchain": blockchain})
+        
+        # Get transactions - either from cache or fetch new ones
+        if wallet_doc and "last_updated" in wallet_doc:
+            last_updated = wallet_doc["last_updated"]
+            if (datetime.now() - last_updated).total_seconds() < 3600:  # 1 hour cache
+                logger.info(f"Using cached transactions for {wallet_address}")
+                transactions = await get_stored_transactions(wallet_address, blockchain)
+            else:
+                # Refresh if data is over an hour old
+                logger.info(f"Refreshing transactions for {wallet_address}")
+                transactions = fetch_wallet_transactions(wallet_address, blockchain)
+                await store_transactions(wallet_address, blockchain, transactions)
+        else:
+            # Fetch new transactions
+            logger.info(f"Fetching new transactions for {wallet_address}")
+            transactions = fetch_wallet_transactions(wallet_address, blockchain)
+            await store_transactions(wallet_address, blockchain, transactions)
         
         # Process transactions to get token positions
         positions = []
@@ -338,7 +410,8 @@ async def get_wallet_details(wallet_address: str, blockchain: str = Query(...)):
                 token_data[token_address]["balance"] -= tx["amount"]
             
             # Update last price
-            token_data[token_address]["last_price"] = tx["price"]
+            if tx["price"] > 0:
+                token_data[token_address]["last_price"] = tx["price"]
         
         # Calculate current value and create positions list
         for token_address, data in token_data.items():
@@ -385,57 +458,43 @@ async def get_leaderboard(blockchain: str = Query(...), metric: str = Query(...)
             
         field, sort_order, token_field = stat_map[metric]
         
-        # For the demo, create leaderboard entries for our known wallets
-        leaderboard_entries = []
+        # Get top wallets from our database
+        pipeline = [
+            {"$match": {"blockchain": blockchain}},
+            {"$sort": {field: sort_order}},
+            {"$limit": 10}
+        ]
         
-        # Filter wallets by blockchain
-        matching_wallets = []
-        for wallet in WALLET_TOKENS.keys():
-            is_solana = is_valid_solana_address(wallet)
-            if (blockchain == "solana" and is_solana) or (blockchain == "base" and not is_solana):
-                matching_wallets.append(wallet)
+        cursor = collection.aggregate(pipeline)
+        leaderboard_entries = await cursor.to_list(length=10)
         
-        # Generate for each wallet
-        for wallet in matching_wallets:
-            # Create transactions
-            transactions = create_synthetic_transactions(wallet, blockchain, get_token_name)
-            
-            # Skip if no transactions
-            if not transactions:
-                continue
-                
-            # Analyze trades
-            stats = await analyze_transactions(transactions)
-            
-            # Get value for this stat
-            stat_value = stats[field]
+        # Format the results
+        formatted_entries = []
+        for entry in leaderboard_entries:
+            token_symbol = entry.get(token_field, "")
             
             # Get token info if available
-            token_symbol = ""
             token_address = ""
             token_name = ""
             
-            if token_field and token_field in stats:
-                token_symbol = stats[token_field]
-                if token_symbol and "token_metadata" in stats and token_symbol in stats["token_metadata"]:
-                    meta = stats["token_metadata"][token_symbol]
-                    token_address = meta["address"]
-                    token_name = meta["name"]
+            # Look up in transactions collection
+            if token_symbol:
+                tx_query = {"token_symbol": token_symbol, "wallet_address": entry["wallet_address"]}
+                tx = await transactions_collection.find_one(tx_query)
+                if tx:
+                    token_address = tx.get("token_address", "")
+                    token_name = tx.get("token_name", "")
             
-            # Add to leaderboard
-            leaderboard_entries.append({
-                "wallet": wallet,
-                "blockchain": blockchain,
+            formatted_entries.append({
+                "wallet": entry["wallet_address"],
+                "blockchain": entry["blockchain"],
                 "token_address": token_address,
                 "token_name": token_name,
                 "token_symbol": token_symbol,
-                "value": stat_value
+                "value": entry.get(field, 0)
             })
         
-        # Sort by the desired metric
-        leaderboard_entries.sort(key=lambda x: x["value"], reverse=(sort_order == -1))
-        
-        return leaderboard_entries[:10]  # Return top 10
+        return formatted_entries
         
     except Exception as e:
         logger.error(f"Error getting leaderboard: {str(e)}")
