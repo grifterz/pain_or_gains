@@ -136,7 +136,7 @@ class MemeAnalyzerTester:
         
     def test_analyze_solana_wallet(self, wallet_address):
         """Test analyzing a Solana wallet"""
-        return self.run_test(
+        success, response = self.run_test(
             f"Analyze Solana Wallet ({wallet_address})",
             "POST",
             "analyze",
@@ -152,6 +152,47 @@ class MemeAnalyzerTester:
                 "all_time_pnl": None
             }
         )
+        
+        # Additional checks for the specific Solana wallet
+        if success and wallet_address == "GPT8wwUbnYgxckmFmV2Pj1MYucodd9R4P8xNqv9WEwrr":
+            print("\nVerifying Solana wallet specific token names:")
+            
+            # Check for PUMP token instead of FHRQk2
+            if response.get("best_trade_token") == "PUMP":
+                print("✅ Best trade token shows as PUMP (not FHRQk2)")
+                self.tests_passed += 1
+            else:
+                print(f"❌ Best trade token shows as {response.get('best_trade_token')} instead of PUMP")
+                
+            # Check for PUMP token for best multiplier
+            if response.get("best_multiplier_token") == "PUMP":
+                print("✅ Best multiplier token shows as PUMP")
+                self.tests_passed += 1
+            else:
+                print(f"❌ Best multiplier token shows as {response.get('best_multiplier_token')} instead of PUMP")
+                
+            # Check for profit values
+            if response.get("best_trade_profit") and abs(response.get("best_trade_profit") - 0.2) < 0.1:
+                print(f"✅ Best trade profit is around 0.2 SOL: {response.get('best_trade_profit')}")
+                self.tests_passed += 1
+            else:
+                print(f"❌ Best trade profit is not around 0.2 SOL: {response.get('best_trade_profit')}")
+                
+            if response.get("best_multiplier") and abs(response.get("best_multiplier") - 3.0) < 0.5:
+                print(f"✅ Best multiplier is around 3.0x: {response.get('best_multiplier')}")
+                self.tests_passed += 1
+            else:
+                print(f"❌ Best multiplier is not around 3.0x: {response.get('best_multiplier')}")
+                
+            if response.get("all_time_pnl") and abs(response.get("all_time_pnl") - 0.2) < 0.1:
+                print(f"✅ All-time PnL is around 0.2 SOL: {response.get('all_time_pnl')}")
+                self.tests_passed += 1
+            else:
+                print(f"❌ All-time PnL is not around 0.2 SOL: {response.get('all_time_pnl')}")
+                
+            self.tests_run += 5  # We added 5 additional checks
+            
+        return success, response
         
     def test_analyze_random_wallet(self, wallet_address):
         """Test analyzing a random wallet with no data"""
