@@ -44,12 +44,13 @@ logger = logging.getLogger(__name__)
 # Get API keys from environment
 QUICKNODE_API_KEY = os.environ.get('QUICKNODE_API_KEY')
 ALCHEMY_API_KEY = os.environ.get('ALCHEMY_API_KEY')
+SOLANA_API_KEY = os.environ.get('SOLANA_API_KEY')
 
 # Define blockchain RPC URLs with API keys
 SOLANA_RPC_URL = "https://api.mainnet-beta.solana.com"
-if QUICKNODE_API_KEY:
-    # QuickNode URL format
-    SOLANA_RPC_URL = f"https://solana-mainnet.rpc.extrnode.com/your_endpoint_here"  # Fallback to public endpoint
+if SOLANA_API_KEY:
+    # Using the provided Solana API key
+    SOLANA_RPC_URL = f"https://rpc.ankr.com/solana/?apiKey={SOLANA_API_KEY}"
 
 BASE_RPC_URL = "https://mainnet.base.org"
 if ALCHEMY_API_KEY:
