@@ -348,173 +348,203 @@ async def get_base_transactions(wallet_address: str) -> List[Dict[str, Any]]:
         # Using Alchemy API for Base blockchain
         alchemy_url = f"https://base-mainnet.g.alchemy.com/v2/{ALCHEMY_API_KEY}"
         
-        # Get token balances to identify which memecoins the wallet interacted with
-        token_payload = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "alchemy_getTokenBalances",
-            "params": [wallet_address, "erc20"]
-        }
-        
-        token_response = requests.post(alchemy_url, json=token_payload)
-        token_data = token_response.json()
-        
-        token_addresses = []
-        for balance in token_data.get('result', {}).get('tokenBalances', []):
-            token_addresses.append(balance.get('contractAddress'))
-        
-        # Add known memecoins even if not in current balance
-        for address in BASE_MEMECOINS.keys():
-            if address not in token_addresses:
-                token_addresses.append(address)
-        
-        # Get transfers for each token
         memecoin_transactions = []
         
-        for token_address in token_addresses:
-            # Skip if not a known memecoin
-            if token_address not in BASE_MEMECOINS:
-                continue
-            
-            # Get transfers for this token
-            transfers_payload = {
+        try:
+            # Get token balances to identify which memecoins the wallet interacted with
+            token_payload = {
                 "jsonrpc": "2.0",
                 "id": 1,
-                "method": "alchemy_getAssetTransfers",
-                "params": [
-                    {
-                        "fromBlock": "0x0",
-                        "toBlock": "latest",
-                        "category": ["erc20"],
-                        "contractAddresses": [token_address],
-                        "withMetadata": True,
-                        "excludeZeroValue": True,
-                        "maxCount": "0x14",  # Limit to 20 transfers
-                        "fromAddress": wallet_address,
-                        "toAddress": wallet_address
-                    }
-                ]
+                "method": "alchemy_getTokenBalances",
+                "params": [wallet_address, "erc20"]
             }
             
-            transfers_response = requests.post(alchemy_url, json=transfers_payload)
-            transfers_data = transfers_response.json()
+            token_response = requests.post(alchemy_url, json=token_payload)
+            token_data = token_response.json()
             
-            if 'error' in transfers_data:
-                logger.error(f"Error from Alchemy API: {transfers_data['error']}")
-                continue
+            if 'error' in token_data:
+                logger.error(f"Error from Alchemy API: {token_data['error']}")
+                return []
             
-            transfers = transfers_data.get('result', {}).get('transfers', [])
-            logger.info(f"Found {len(transfers)} transfers for token {token_address}")
+            token_addresses = []
+            for balance in token_data.get('result', {}).get('tokenBalances', []):
+                token_addresses.append(balance.get('contractAddress'))
             
-            for transfer in transfers:
-                tx_hash = transfer.get('hash')
-                from_address = transfer.get('from')
-                to_address = transfer.get('to')
-                amount = float(transfer.get('value', 0))
-                token_symbol = BASE_MEMECOINS.get(token_address, "Unknown")
+            # Add known memecoins even if not in current balance
+            for address in BASE_MEMECOINS.keys():
+                if address not in token_addresses:
+                    token_addresses.append(address)
+            
+            # Get transfers for each token
+            for token_address in token_addresses:
+                # Skip if not a known memecoin
+                if token_address not in BASE_MEMECOINS:
+                    continue
                 
-                # Determine if buy or sell
-                if to_address.lower() == wallet_address.lower():
-                    tx_type = "buy"
-                else:
-                    tx_type = "sell"
-                
-                # Get transaction details including price
-                tx_payload = {
+                # Get transfers for this token
+                transfers_payload = {
                     "jsonrpc": "2.0",
                     "id": 1,
-                    "method": "eth_getTransactionByHash",
-                    "params": [tx_hash]
+                    "method": "alchemy_getAssetTransfers",
+                    "params": [
+                        {
+                            "fromBlock": "0x0",
+                            "toBlock": "latest",
+                            "category": ["erc20"],
+                            "contractAddresses": [token_address],
+                            "withMetadata": True,
+                            "excludeZeroValue": True,
+                            "maxCount": "0x1E",  # Limit to 30 transfers (0x1E = 30 in hex)
+                            "excludeZeroValue": True,
+                            "order": "desc"  # Most recent first
+                        }
+                    ]
                 }
                 
-                tx_response = requests.post(alchemy_url, json=tx_payload)
-                tx_data = tx_response.json()
+                transfers_response = requests.post(alchemy_url, json=transfers_payload)
+                transfers_data = transfers_response.json()
                 
-                if 'error' in tx_data:
+                if 'error' in transfers_data:
+                    logger.error(f"Error from Alchemy API: {transfers_data['error']}")
                     continue
                 
-                # Get block info for timestamp
-                block_number = tx_data.get('result', {}).get('blockNumber')
-                if not block_number:
-                    continue
+                transfers = transfers_data.get('result', {}).get('transfers', [])
+                logger.info(f"Found {len(transfers)} transfers for token {token_address}")
                 
-                block_payload = {
-                    "jsonrpc": "2.0",
-                    "id": 1,
-                    "method": "eth_getBlockByNumber",
-                    "params": [block_number, False]
-                }
-                
-                block_response = requests.post(alchemy_url, json=block_payload)
-                block_data = block_response.json()
-                
-                if 'error' in block_data:
-                    continue
-                
-                # Get timestamp from block
-                timestamp = int(block_data.get('result', {}).get('timestamp', '0x0'), 16)
-                
-                # Estimate price
-                # NOTE: This is a simplification - real price would require DEX query
-                value_wei = int(tx_data.get('result', {}).get('value', '0x0'), 16)
-                gas_price = int(tx_data.get('result', {}).get('gasPrice', '0x0'), 16)
-                gas = int(tx_data.get('result', {}).get('gas', '0x0'), 16)
-                
-                # Total transaction cost in ETH
-                tx_cost_eth = (value_wei + (gas_price * gas)) / 1e18
-                
-                # Crude price estimation
-                price = tx_cost_eth / amount if amount > 0 else 0
-                
-                memecoin_transactions.append({
-                    "tx_hash": tx_hash,
-                    "wallet_address": wallet_address,
-                    "token_address": token_address,
-                    "token_symbol": token_symbol,
-                    "amount": amount,
-                    "price": price,
-                    "timestamp": timestamp,
-                    "type": tx_type
-                })
-                
-                # Small delay to avoid rate limiting
-                await asyncio.sleep(0.1)
-        
-        logger.info(f"Found {len(memecoin_transactions)} memecoin transactions for wallet {wallet_address}")
-        
-        if not memecoin_transactions:
-            logger.warning(f"No memecoin transactions found for wallet {wallet_address}, using sample data")
-            # For demo purposes, return sample data when no real transactions are found
-            wallet_hash = sum([ord(c) for c in wallet_address])
+                for transfer in transfers:
+                    tx_hash = transfer.get('hash')
+                    from_address = transfer.get('from')
+                    to_address = transfer.get('to')
+                    amount = float(transfer.get('value', 0))
+                    token_symbol = BASE_MEMECOINS.get(token_address, "Unknown")
+                    
+                    # Skip transfers that don't involve this wallet
+                    wallet_address_lower = wallet_address.lower()
+                    if (from_address.lower() != wallet_address_lower and 
+                        to_address.lower() != wallet_address_lower):
+                        continue
+                    
+                    # Get transaction details to check ETH transfer
+                    tx_payload = {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "eth_getTransactionReceipt",
+                        "params": [tx_hash]
+                    }
+                    
+                    tx_response = requests.post(alchemy_url, json=tx_payload)
+                    tx_receipt = tx_response.json().get('result', {})
+                    
+                    if not tx_receipt:
+                        continue
+                    
+                    # Get the entire transaction to check ETH value
+                    tx_detail_payload = {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "eth_getTransactionByHash",
+                        "params": [tx_hash]
+                    }
+                    
+                    tx_detail_response = requests.post(alchemy_url, json=tx_detail_payload)
+                    tx_detail = tx_detail_response.json().get('result', {})
+                    
+                    if not tx_detail:
+                        continue
+                        
+                    # Get block info for timestamp
+                    block_number = tx_detail.get('blockNumber')
+                    if not block_number:
+                        continue
+                    
+                    block_payload = {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "eth_getBlockByNumber",
+                        "params": [block_number, False]
+                    }
+                    
+                    block_response = requests.post(alchemy_url, json=block_payload)
+                    block_data = block_response.json().get('result', {})
+                    
+                    if not block_data:
+                        continue
+                    
+                    # Get timestamp from block
+                    timestamp = int(block_data.get('timestamp', '0x0'), 16)
+                    
+                    # Determine transaction type and filter out airdrops/free tokens
+                    eth_value = int(tx_detail.get('value', '0x0'), 16) / 1e18  # Convert wei to ETH
+                    
+                    if to_address.lower() == wallet_address_lower:
+                        # Receiving tokens
+                        if from_address.lower() == '0x0000000000000000000000000000000000000000':
+                            # Skip mints directly from the zero address (likely airdrops)
+                            continue
+                            
+                        # Check if tx includes ETH outflow (suggesting token purchase)
+                        # This is a simplification - in a full implementation we'd check logs for DEX swaps
+                        
+                        # We consider it a buy if:
+                        # 1. Not from zero address
+                        # 2. Not a transfer from another wallet with zero ETH value
+                        if eth_value > 0 or tx_detail.get('to', '').lower() == token_address.lower():
+                            tx_type = "buy"
+                            # Estimate price based on ETH flow or gas cost
+                            gas_price = int(tx_detail.get('gasPrice', '0x0'), 16) / 1e18
+                            gas_used = int(tx_receipt.get('gasUsed', '0x0'), 16)
+                            gas_cost = gas_price * gas_used
+                            
+                            # If there's ETH value in the tx, use that for price estimation
+                            # Otherwise use gas cost as a very rough estimate
+                            if eth_value > 0:
+                                price = eth_value / amount
+                            else:
+                                price = gas_cost / amount  # Very rough approximation
+                        else:
+                            # Likely a free transfer or airdrop
+                            continue
+                    elif from_address.lower() == wallet_address_lower:
+                        # Sending tokens
+                        # Consider it a sale if there's ETH flowing back or to a known DEX
+                        if eth_value > 0 or tx_detail.get('to', '').lower() == token_address.lower():
+                            tx_type = "sell"
+                            # For sales, estimate price based on ETH received
+                            price = eth_value / amount if amount > 0 else 0
+                        else:
+                            # Likely a transfer out, not a sale
+                            continue
+                    else:
+                        # Not involving this wallet directly
+                        continue
+                    
+                    memecoin_transactions.append({
+                        "tx_hash": tx_hash,
+                        "wallet_address": wallet_address,
+                        "token_address": token_address,
+                        "token_symbol": token_symbol,
+                        "amount": amount,
+                        "price": price,
+                        "timestamp": timestamp,
+                        "type": tx_type
+                    })
+                    
+                    # Small delay to avoid rate limiting
+                    await asyncio.sleep(0.1)
             
-            # Generate sample transactions
-            for token_address, token_symbol in list(BASE_MEMECOINS.items())[:3]:
-                memecoin_transactions.append({
-                    "tx_hash": f"0x{wallet_hash}buy{token_symbol}",
-                    "wallet_address": wallet_address,
-                    "token_address": token_address,
-                    "token_symbol": token_symbol,
-                    "amount": 50 + (wallet_hash % 500),
-                    "price": 0.0001 + (wallet_hash % 100) / 1000000,
-                    "timestamp": int(time.time()) - 30 * 24 * 60 * 60,
-                    "type": "buy"
-                })
-                
-                memecoin_transactions.append({
-                    "tx_hash": f"0x{wallet_hash}sell{token_symbol}",
-                    "wallet_address": wallet_address,
-                    "token_address": token_address,
-                    "token_symbol": token_symbol,
-                    "amount": 50 + (wallet_hash % 500),
-                    "price": 0.0005 + (wallet_hash % 100) / 100000,
-                    "timestamp": int(time.time()) - 15 * 24 * 60 * 60,
-                    "type": "sell"
-                })
-        
-        return memecoin_transactions
+            logger.info(f"Found {len(memecoin_transactions)} memecoin transactions for wallet {wallet_address}")
+            
+            # Return only real transactions - no sample data fallback
+            return memecoin_transactions
+            
+        except Exception as e:
+            logger.error(f"Error fetching Base transactions: {str(e)}")
+            # Return empty list - no sample data fallback
+            return []
         
     except Exception as e:
         logger.error(f"Error getting Base transactions: {str(e)}")
+        # Return empty list - no sample data fallback
         return []
 
 async def analyze_memecoin_trades(transactions: List[Dict[str, Any]]) -> Dict[str, Any]:
