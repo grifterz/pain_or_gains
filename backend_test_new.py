@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 
 class MemeAnalyzerTester:
-    def __init__(self, base_url="https://994f8226-f44b-42aa-9a0f-715c84fc22e4.preview.emergentagent.com"):
+    def __init__(self, base_url="https://418b7862-b0d9-4a59-8a0a-b0cdf2b40a11.preview.emergentagent.com"):
         self.base_url = base_url
         self.tests_run = 0
         self.tests_passed = 0

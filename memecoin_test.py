@@ -224,7 +224,7 @@ class MemecoinsAPITester:
 
 def main():
     # Use the public endpoint from the frontend .env file
-    base_url = "https://994f8226-f44b-42aa-9a0f-715c84fc22e4.preview.emergentagent.com"
+    base_url = "https://418b7862-b0d9-4a59-8a0a-b0cdf2b40a11.preview.emergentagent.com"
     
     tester = MemecoinsAPITester(base_url)
     
