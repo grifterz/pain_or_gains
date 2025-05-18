@@ -123,7 +123,7 @@ def main():
     # Test wallet analysis
     solana_success, solana_data = tester.test_analyze_solana_wallet()
     base_success, base_data = tester.test_analyze_base_wallet()
-    tester.test_invalid_blockchain()
+    tester.test_invalid_wallet_address()
     
     # Test leaderboard endpoints
     for stat_type in ["best_trade", "best_multiplier", "all_time_pnl", "worst_trade"]:
