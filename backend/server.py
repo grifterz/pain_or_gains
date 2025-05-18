@@ -122,10 +122,12 @@ class SearchQuery(BaseModel):
             return v
             
         blockchain = values.get('blockchain', 'solana').lower()
-        if blockchain == 'solana' and not is_valid_solana_address(v):
-            raise ValueError("Invalid Solana wallet address")
-        elif blockchain == 'base' and not is_valid_eth_address(v):
-            raise ValueError("Invalid Ethereum/Base wallet address")
+        if blockchain == 'solana':
+            if not is_valid_solana_address(v):
+                raise ValueError("Invalid Solana wallet address")
+        elif blockchain == 'base':
+            if not is_valid_eth_address(v):
+                raise ValueError("Invalid Ethereum/Base wallet address")
         return v
 
 class Transaction(BaseModel):
