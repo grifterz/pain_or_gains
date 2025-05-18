@@ -376,8 +376,12 @@ async def analyze_wallet(search_query: SearchQuery) -> TradeStats:
             timestamp=datetime.now()
         )
         
-        # Store in MongoDB
-        await collection.insert_one(result.dict())
+        # Store in MongoDB - update existing or insert new
+        await collection.update_one(
+            {"wallet_address": wallet_address, "blockchain": blockchain},
+            {"$set": result.dict()},
+            upsert=True
+        )
         
         return result
         
@@ -508,9 +512,18 @@ async def get_leaderboard(blockchain: str = Query(...), metric: str = Query(...)
         field, sort_order, token_field = stat_map[metric]
         
         # Get top wallets from our database
+        # Use distinct to make sure we only get one entry per wallet
         pipeline = [
             {"$match": {"blockchain": blockchain}},
             {"$sort": {field: sort_order}},
+            {"$group": {
+                "_id": "$wallet_address",
+                "wallet": {"$first": "$wallet_address"},
+                "blockchain": {"$first": "$blockchain"},
+                "value": {"$first": f"${field}"},
+                "token_field": {"$first": f"${token_field}"} if token_field else {"$literal": ""}
+            }},
+            {"$sort": {"value": sort_order}},
             {"$limit": 10}
         ]
         
@@ -520,7 +533,7 @@ async def get_leaderboard(blockchain: str = Query(...), metric: str = Query(...)
         # Format the results
         formatted_entries = []
         for entry in leaderboard_entries:
-            token_symbol = entry.get(token_field, "")
+            token_symbol = entry.get("token_field", "")
             
             # Get token info if available
             token_address = ""
@@ -528,19 +541,19 @@ async def get_leaderboard(blockchain: str = Query(...), metric: str = Query(...)
             
             # Look up in transactions collection
             if token_symbol:
-                tx_query = {"token_symbol": token_symbol, "wallet_address": entry["wallet_address"]}
+                tx_query = {"token_symbol": token_symbol, "wallet_address": entry["wallet"]}
                 tx = await transactions_collection.find_one(tx_query)
                 if tx:
                     token_address = tx.get("token_address", "")
                     token_name = tx.get("token_name", "")
             
             formatted_entries.append({
-                "wallet": entry["wallet_address"],
+                "wallet": entry["wallet"],
                 "blockchain": entry["blockchain"],
                 "token_address": token_address,
                 "token_name": token_name,
                 "token_symbol": token_symbol,
-                "value": entry.get(field, 0)
+                "value": entry.get("value", 0)
             })
         
         return formatted_entries
