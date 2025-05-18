@@ -103,10 +103,17 @@ async def analyze_transactions(transactions):
     
     # Group transactions by token
     token_transactions = {}
+    token_metadata = {}
+    
     for tx in transactions:
         token = tx["token_symbol"]
         if token not in token_transactions:
             token_transactions[token] = []
+            token_metadata[token] = {
+                "address": tx["token_address"],
+                "name": tx["token_name"],
+                "symbol": tx["token_symbol"]
+            }
         token_transactions[token].append(tx)
     
     # Calculate statistics
@@ -203,15 +210,19 @@ async def analyze_transactions(transactions):
         # Add to total PnL
         all_time_pnl += token_pnl
     
-    return {
+    # Get token metadata for statistics
+    stats = {
         "best_trade_profit": best_trade_profit,
         "best_trade_token": best_trade_token,
         "best_multiplier": best_multiplier,
         "best_multiplier_token": best_multiplier_token,
         "all_time_pnl": all_time_pnl,
         "worst_trade_loss": worst_trade_loss,
-        "worst_trade_token": worst_trade_token
+        "worst_trade_token": worst_trade_token,
+        "token_metadata": token_metadata
     }
+    
+    return stats
 
 # API routes
 @api_router.get("/")
@@ -338,6 +349,10 @@ async def get_wallet_details(wallet_address: str, blockchain: str = Query(...)):
         # Get trade stats
         stats = await analyze_transactions(transactions)
         
+        # Remove token_metadata from stats for cleaner response
+        if "token_metadata" in stats:
+            del stats["token_metadata"]
+        
         return {
             "wallet_address": wallet_address,
             "blockchain": blockchain,
@@ -359,16 +374,16 @@ async def get_leaderboard(blockchain: str = Query(...), metric: str = Query(...)
             raise HTTPException(status_code=400, detail="Invalid blockchain")
         
         stat_map = {
-            "best_trade": ("best_trade_profit", -1),
-            "best_multiplier": ("best_multiplier", -1),
-            "all_time_pnl": ("all_time_pnl", -1),
-            "worst_trade": ("worst_trade_loss", 1)  # For worst trade, lower (more negative) is higher rank
+            "best_trade": ("best_trade_profit", -1, "best_trade_token"),
+            "best_multiplier": ("best_multiplier", -1, "best_multiplier_token"),
+            "all_time_pnl": ("all_time_pnl", -1, None),
+            "worst_trade": ("worst_trade_loss", 1, "worst_trade_token")  # For worst trade, lower (more negative) is higher rank
         }
         
         if metric not in stat_map:
             raise HTTPException(status_code=400, detail="Invalid metric")
             
-        field, sort_order = stat_map[metric]
+        field, sort_order, token_field = stat_map[metric]
         
         # For the demo, create leaderboard entries for our known wallets
         leaderboard_entries = []
@@ -392,22 +407,20 @@ async def get_leaderboard(blockchain: str = Query(...), metric: str = Query(...)
             # Analyze trades
             stats = await analyze_transactions(transactions)
             
-            # Choose a token for this stat
+            # Get value for this stat
             stat_value = stats[field]
-            token_field = field.replace("profit", "token").replace("loss", "token").replace("pnl", "token")
-            token = stats.get(token_field, "")
             
-            # Find the token address and details
+            # Get token info if available
+            token_symbol = ""
             token_address = ""
             token_name = ""
-            token_symbol = ""
             
-            for tx in transactions:
-                if tx["token_symbol"] == token:
-                    token_address = tx["token_address"]
-                    token_name = tx["token_name"]
-                    token_symbol = tx["token_symbol"]
-                    break
+            if token_field and token_field in stats:
+                token_symbol = stats[token_field]
+                if token_symbol and "token_metadata" in stats and token_symbol in stats["token_metadata"]:
+                    meta = stats["token_metadata"][token_symbol]
+                    token_address = meta["address"]
+                    token_name = meta["name"]
             
             # Add to leaderboard
             leaderboard_entries.append({
