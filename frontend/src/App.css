@@ -138,6 +138,14 @@ body {
   outline: none;
 }
 
+.search-input.valid {
+  border-color: var(--green);
+}
+
+.search-input.invalid {
+  border-color: var(--red);
+}
+
 .search-button {
   padding: 0 20px;
   background-color: var(--medium-blue);
@@ -150,6 +158,24 @@ body {
 
 .search-button:hover {
   background-color: var(--dark-blue);
+}
+
+.search-button:disabled {
+  background-color: var(--gray);
+  cursor: not-allowed;
+}
+
+.error-message {
+  margin-top: 10px;
+  padding: 8px 12px;
+  background-color: var(--red);
+  color: var(--white);
+  border: var(--pixel-border);
+  text-align: left;
+  font-size: 1.1rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 /* Toggle View Buttons */
@@ -255,6 +281,27 @@ body {
 .stat-token {
   font-size: 1.2rem;
   opacity: 0.8;
+}
+
+/* No Wallet Data */
+.no-wallet-data {
+  padding: 30px;
+  text-align: center;
+  border: 2px dashed var(--gray);
+  margin-bottom: 30px;
+}
+
+.no-wallet-data h3 {
+  font-family: 'Press Start 2P', cursive;
+  font-size: 1.3rem;
+  margin-bottom: 15px;
+  color: var(--dark-gray);
+}
+
+.no-wallet-data p {
+  font-size: 1.2rem;
+  margin-bottom: 10px;
+  color: var(--dark-gray);
 }
 
 /* Leaderboard */

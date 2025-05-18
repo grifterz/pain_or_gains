@@ -3,7 +3,7 @@ import "./App.css";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import axios from "axios";
 import { Toaster, toast } from 'react-hot-toast';
-import { FaSearch, FaChartLine, FaTrophy, FaExchangeAlt, FaSadTear } from 'react-icons/fa';
+import { FaSearch, FaChartLine, FaTrophy, FaExchangeAlt, FaSadTear, FaInfoCircle } from 'react-icons/fa';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -30,6 +30,7 @@ const Search = ({ onSearch }) => {
   const [wallet, setWallet] = useState("");
   const [blockchain, setBlockchain] = useState("solana");
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -40,6 +41,7 @@ const Search = ({ onSearch }) => {
     }
     
     setIsLoading(true);
+    setError("");
     
     try {
       const response = await axios.post(`${API}/analyze`, {
@@ -51,9 +53,52 @@ const Search = ({ onSearch }) => {
       toast.success("Analysis complete!");
     } catch (error) {
       console.error("Error analyzing wallet:", error);
-      toast.error("Failed to analyze wallet. Please try again.");
+      
+      if (error.response) {
+        // The request was made and the server responded with a status code
+        // that falls out of the range of 2xx
+        const errorDetail = error.response.data.detail || "Failed to analyze wallet";
+        setError(errorDetail);
+        toast.error(errorDetail);
+      } else if (error.request) {
+        // The request was made but no response was received
+        setError("No response from server. Please try again later.");
+        toast.error("Server not responding. Please try again later.");
+      } else {
+        // Something happened in setting up the request that triggered an Error
+        setError("Error: " + error.message);
+        toast.error("Failed to analyze wallet. Please try again.");
+      }
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const validateSolanaAddress = (address) => {
+    // Basic Solana address validation
+    return address.length === 43 || address.length === 44;
+  };
+
+  const validateBaseAddress = (address) => {
+    // Basic Ethereum/Base address validation
+    return address.startsWith('0x') && address.length === 42;
+  };
+
+  const getAddressPlaceholder = () => {
+    if (blockchain === "solana") {
+      return "Enter Solana wallet address...";
+    } else {
+      return "Enter Base wallet address (0x...)";
+    }
+  };
+
+  const getAddressValidationClass = () => {
+    if (!wallet) return "";
+    
+    if (blockchain === "solana") {
+      return validateSolanaAddress(wallet) ? "valid" : "invalid";
+    } else {
+      return validateBaseAddress(wallet) ? "valid" : "invalid";
     }
   };
 
@@ -80,15 +125,21 @@ const Search = ({ onSearch }) => {
         <div className="search-input-container">
           <input
             type="text"
-            placeholder={`Enter ${blockchain} wallet address...`}
+            placeholder={getAddressPlaceholder()}
             value={wallet}
             onChange={(e) => setWallet(e.target.value)}
-            className="search-input"
+            className={`search-input ${getAddressValidationClass()}`}
           />
           <button type="submit" className="search-button" disabled={isLoading}>
             {isLoading ? "Analyzing..." : <FaSearch />}
           </button>
         </div>
+        
+        {error && (
+          <div className="error-message">
+            <FaInfoCircle /> {error}
+          </div>
+        )}
       </form>
     </div>
   );
@@ -98,6 +149,10 @@ const Search = ({ onSearch }) => {
 const Results = ({ results }) => {
   if (!results) return null;
   
+  const getCurrencySymbol = () => {
+    return results.blockchain === "solana" ? "SOL" : "ETH";
+  };
+  
   return (
     <div className="results-container">
       <h2>Analysis Results for {results.wallet_address.slice(0, 6)}...{results.wallet_address.slice(-4)}</h2>
@@ -106,7 +161,7 @@ const Results = ({ results }) => {
         <div className="stat-card best-trade">
           <div className="stat-icon"><FaTrophy /></div>
           <h3>Best Trade</h3>
-          <p className="stat-value">${results.best_trade_profit.toFixed(2)}</p>
+          <p className="stat-value">{results.best_trade_profit.toFixed(4)} {getCurrencySymbol()}</p>
           <p className="stat-token">{results.best_trade_token}</p>
         </div>
         
@@ -121,7 +176,7 @@ const Results = ({ results }) => {
           <div className="stat-icon"><FaExchangeAlt /></div>
           <h3>All-time PnL</h3>
           <p className={`stat-value ${results.all_time_pnl >= 0 ? "positive" : "negative"}`}>
-            ${results.all_time_pnl.toFixed(2)}
+            {results.all_time_pnl.toFixed(4)} {getCurrencySymbol()}
           </p>
           <p className="stat-token">Total</p>
         </div>
@@ -129,7 +184,7 @@ const Results = ({ results }) => {
         <div className="stat-card worst-trade">
           <div className="stat-icon"><FaSadTear /></div>
           <h3>Worst Trade</h3>
-          <p className="stat-value negative">${results.worst_trade_loss.toFixed(2)}</p>
+          <p className="stat-value negative">{results.worst_trade_loss.toFixed(4)} {getCurrencySymbol()}</p>
           <p className="stat-token">{results.worst_trade_token}</p>
         </div>
       </div>
@@ -172,12 +227,16 @@ const Leaderboard = () => {
     }
   };
   
+  const getCurrencySymbol = () => {
+    return blockchain === "solana" ? "SOL" : "ETH";
+  };
+  
   const formatValue = (entry) => {
     switch (statType) {
-      case "best_trade": return `$${entry.value.toFixed(2)}`;
+      case "best_trade": return `${entry.value.toFixed(4)} ${getCurrencySymbol()}`;
       case "best_multiplier": return `${entry.value.toFixed(2)}x`;
-      case "all_time_pnl": return `$${entry.value.toFixed(2)}`;
-      case "worst_trade": return `$${entry.value.toFixed(2)}`;
+      case "all_time_pnl": return `${entry.value.toFixed(4)} ${getCurrencySymbol()}`;
+      case "worst_trade": return `${entry.value.toFixed(4)} ${getCurrencySymbol()}`;
       default: return entry.value;
     }
   };
@@ -250,7 +309,7 @@ const Leaderboard = () => {
                 </tr>
               ) : (
                 leaderboard.map((entry) => (
-                  <tr key={entry.wallet_address}>
+                  <tr key={`${entry.wallet_address}-${entry.rank}`}>
                     <td>#{entry.rank}</td>
                     <td>{entry.wallet_address.slice(0, 6)}...{entry.wallet_address.slice(-4)}</td>
                     <td className={statType === "worst_trade" ? "negative" : ""}>{formatValue(entry)}</td>
@@ -262,6 +321,17 @@ const Leaderboard = () => {
           </table>
         </div>
       )}
+    </div>
+  );
+};
+
+// No wallets found component
+const NoWalletData = () => {
+  return (
+    <div className="no-wallet-data">
+      <h3>No Memecoin Transactions Found</h3>
+      <p>This wallet either doesn't exist or has no memecoin trading activity.</p>
+      <p>Try another wallet address or blockchain.</p>
     </div>
   );
 };
@@ -301,7 +371,11 @@ const Home = () => {
         {showLeaderboard ? (
           <Leaderboard />
         ) : (
-          results ? <Results results={results} /> : (
+          results ? (
+            results.best_trade_token || results.best_multiplier_token || results.worst_trade_token ? 
+            <Results results={results} /> : 
+            <NoWalletData />
+          ) : (
             <div className="no-results">
               <p>Enter a wallet address to analyze memecoin trades</p>
             </div>
