@@ -178,7 +178,34 @@ def get_metadata_from_solscan(token_address: str) -> Optional[Dict[str, Any]]:
                     
                     return metadata
             
-            # Try alternate pattern looking for token info sections
+            # Try looking for token name within Profile Summary section
+            token_name_match = re.search(r'Token name\s*</[^>]*>\s*</[^>]*>\s*<[^>]*>\s*([^<]+)', html)
+            if token_name_match:
+                name = token_name_match.group(1).strip()
+                logger.info(f"Extracted from profile summary: name={name}")
+                
+                # Try to find symbol too
+                symbol_match = re.search(r'\(([A-Z0-9]+)\)', name)
+                if symbol_match:
+                    symbol = symbol_match.group(1)
+                else:
+                    symbol = name.split()[0] if name else ""
+                
+                if name:
+                    metadata = {
+                        "name": name,
+                        "symbol": symbol
+                    }
+                    
+                    # Cache the result
+                    TOKEN_CACHE[cache_key] = {
+                        'data': metadata,
+                        'timestamp': now
+                    }
+                    
+                    return metadata
+            
+            # Try another pattern looking for token info sections
             token_info_match = re.search(r'<div[^>]*class="token-info"[^>]*>.*?<div[^>]*class="token-name"[^>]*>(.*?)<\/div>.*?<div[^>]*class="token-symbol"[^>]*>(.*?)<\/div>', html, re.DOTALL)
             if token_info_match:
                 name = re.sub(r'<[^>]*>', '', token_info_match.group(1)).strip()
@@ -351,7 +378,8 @@ def get_pump_token_info():
     Hardcoded info for common pump tokens
     """
     return {
-        "5HyZiyaSsQt8VZBAJcULZhtykiVmkAkWLiQJCER9pump": {"name": "Pump Vault v1", "symbol": "pVault"},
+        # Updated based on the screenshot provided
+        "5HyZiyaSsQt8VZBAJcULZhtykiVmkAkWLiQJCER9pump": {"name": "THE PENGU KILLER", "symbol": "ORCA"},
         "FHRQk2cYczCo4t6GhEHaKS6WSHXYcAhs7i4V6yWppump": {"name": "PUMP Token", "symbol": "PUMP"},
         "3yCDp1E5yzA1qoNQuDjNr5iXyj1CSHjf3dktHpnypump": {"name": "Genesis Pump", "symbol": "gPUMP"},
         "56UtHy4oBGeLNEenvvXJhhAwDwhNc2bbZgAPUZaFpump": {"name": "Pump Detector", "symbol": "DETECTOR"}
