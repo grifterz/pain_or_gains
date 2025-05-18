@@ -385,8 +385,9 @@ const NoWalletData = () => {
   return (
     <div className="no-wallet-data">
       <h3>No Memecoin Transactions Found</h3>
-      <p>This wallet either doesn't exist or has no memecoin trading activity.</p>
-      <p>Try another wallet address or blockchain.</p>
+      <p>This wallet has no detected memecoin trading activity.</p>
+      <p>We only analyze actual buy/sell trades and filter out airdrops or free tokens.</p>
+      <p>Try another wallet address that has traded memecoins.</p>
     </div>
   );
 };
