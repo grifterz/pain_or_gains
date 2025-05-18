@@ -1048,7 +1048,12 @@ async def create_synthetic_base_transactions(wallet_address: str) -> List[Dict[s
     for token_address in KNOWN_BASE_TOKENS.get(wallet_address.lower(), []):
         # Try to get token info
         try:
-            if ALCHEMY_API_KEY:
+            # First check if we have a known name mapping
+            if token_address in BASE_TOKEN_NAMES:
+                token_symbol = BASE_TOKEN_NAMES[token_address]
+                logger.info(f"Using known token name {token_symbol} for {token_address}")
+            # Then try Alchemy API
+            elif ALCHEMY_API_KEY:
                 alchemy_url = f"https://base-mainnet.g.alchemy.com/v2/{ALCHEMY_API_KEY}"
                 token_meta_payload = {
                     "jsonrpc": "2.0",
@@ -1067,7 +1072,11 @@ async def create_synthetic_base_transactions(wallet_address: str) -> List[Dict[s
             else:
                 token_symbol = token_address[2:8]  # Use first 6 chars of address
         except:
-            token_symbol = token_address[2:8]  # Use first 6 chars of address
+            # Fall back to known name or address prefix
+            if token_address in BASE_TOKEN_NAMES:
+                token_symbol = BASE_TOKEN_NAMES[token_address]
+            else:
+                token_symbol = token_address[2:8]  # Use first 6 chars of address
         
         # Buy transaction
         buy_price = 0.0001
