@@ -422,6 +422,10 @@ const Home = () => {
           </button>
         </div>
         
+        <div className="disclaimer">
+          Note: This tool uses deterministic simulation based on wallet address patterns to demonstrate functionality.
+        </div>
+        
         {showLeaderboard ? (
           <Leaderboard />
         ) : (
