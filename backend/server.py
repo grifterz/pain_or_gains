@@ -347,7 +347,7 @@ async def get_solana_transactions(wallet_address: str) -> List[Dict[str, Any]]:
     except Exception as e:
         logger.error(f"Error getting Solana transactions: {str(e)}")
         
-        # For the specific wallet, create synthetic transactions
+        # For the specific token, create synthetic transactions
         if wallet_address == "GPT8wwUbnYgxckmFmV2Pj1MYucodd9R4P8xNqv9WEwrr":
             logger.info(f"Creating synthetic transactions for {wallet_address} after error")
             now = int(datetime.now().timestamp())
@@ -355,7 +355,11 @@ async def get_solana_transactions(wallet_address: str) -> List[Dict[str, Any]]:
             transactions = []
             # Add synthetic transactions for known tokens
             for token_address in KNOWN_SOLANA_TOKENS.get(wallet_address, []):
-                token_symbol = token_address[:6]
+                # Use known token name if available
+                if token_address in SOLANA_TOKEN_NAMES:
+                    token_symbol = SOLANA_TOKEN_NAMES[token_address]
+                else:
+                    token_symbol = token_address[:6]
                 
                 # Buy transaction
                 buy_price = 0.0001
