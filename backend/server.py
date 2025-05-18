@@ -247,43 +247,67 @@ async def get_base_transactions(wallet_address: str) -> List[Dict[str, Any]]:
         logger.info(f"Fetching transactions for Base wallet: {wallet_address}")
         
         # Create some realistic-looking mock data based on the wallet address
-        # In production, you would process real transaction data
         wallet_hash = sum([ord(c) for c in wallet_address])
         
         # Generate mock transactions that follow a realistic pattern
         memecoin_transactions = []
-        available_tokens = list(BASE_MEMECOINS.items())
+        available_tokens = [
+            ("0x4ed4E862860beD51a9570b96d89aF5E1B0Efefed", "DEGEN"),
+            ("0xd5046B976188EB40f6DE40fB527F89c05b323385", "BRETT"),
+            ("0x91F45aa2BdF776b778CFa31B61e5Aef875466f25", "MOCHI"),
+            ("0x6B3595068778DD592e39A122f4f5a5cF09C90fE2", "SUSHI"),
+            ("0x53E0bca35eC356BD5ddDFebbD1Fc0fD03FaBad39", "PEPE")
+        ]
         
-        for i, token_data in enumerate(available_tokens):
-            if i >= len(available_tokens):
-                break
-                
-            token_address, token_symbol = token_data
+        # Different profit factors for different tokens for variation
+        profit_factors = {
+            "DEGEN": 3.5 + (wallet_hash % 15) / 10,
+            "BRETT": 0.6 + (wallet_hash % 7) / 10,  # Some loss
+            "MOCHI": 2.2 + (wallet_hash % 8) / 10,
+            "SUSHI": 1.8 + (wallet_hash % 6) / 10,
+            "PEPE": 4.0 + (wallet_hash % 20) / 10
+        }
+        
+        base_timestamp = int(datetime.now().timestamp()) - 90 * 24 * 60 * 60  # 90 days ago
+        
+        for token_address, token_symbol in available_tokens:
+            # Buy amount varies based on wallet and token
+            buy_amount = 50 + ((wallet_hash * ord(token_symbol[0])) % 500)
             
-            # Skip ETH
-            if token_address == "0x0000000000000000000000000000000000000000":
-                continue
-                
-            # Generate a buy transaction
-            buy_amount = 100 + (wallet_hash % 1000)
-            buy_price = 0.001 + (wallet_hash % 100) / 10000
+            # Base price varies by token - ETH prices are much higher than SOL
+            base_price = 0
+            if token_symbol == "DEGEN":
+                base_price = 0.0005 + (wallet_hash % 100) / 100000
+            elif token_symbol == "BRETT":
+                base_price = 0.001 + (wallet_hash % 100) / 50000
+            elif token_symbol == "MOCHI":
+                base_price = 0.0002 + (wallet_hash % 100) / 200000
+            elif token_symbol == "SUSHI":
+                base_price = 0.003 + (wallet_hash % 100) / 20000
+            elif token_symbol == "PEPE":
+                base_price = 0.0001 + (wallet_hash % 100) / 1000000
             
-            # Generate a sell transaction with a profit or loss
-            profit_factor = 1.2 + (wallet_hash % 10) / 10  # Between 1.2x and 2.2x
-            sell_price = buy_price * profit_factor
+            # Generate buy and sell timestamps (buys before sells)
+            buy_timestamp = base_timestamp + (ord(token_symbol[0]) * 24 * 60 * 60)
+            sell_timestamp = buy_timestamp + ((wallet_hash % 45) * 24 * 60 * 60)  # 1-45 days later
             
-            # Add the transactions
+            # Calculate sell price with profit factor
+            profit_factor = profit_factors[token_symbol]
+            sell_price = base_price * profit_factor
+            
+            # Add the buy transaction
             memecoin_transactions.append({
                 "tx_hash": f"0xbuy{token_symbol}{wallet_hash}",
                 "wallet_address": wallet_address,
                 "token_address": token_address,
                 "token_symbol": token_symbol,
                 "amount": buy_amount,
-                "price": buy_price,
-                "timestamp": int(datetime.now().timestamp()) - 30 * 24 * 60 * 60,  # 30 days ago
+                "price": base_price,
+                "timestamp": buy_timestamp,
                 "type": "buy"
             })
             
+            # Add the sell transaction
             memecoin_transactions.append({
                 "tx_hash": f"0xsell{token_symbol}{wallet_hash}",
                 "wallet_address": wallet_address,
@@ -291,7 +315,7 @@ async def get_base_transactions(wallet_address: str) -> List[Dict[str, Any]]:
                 "token_symbol": token_symbol,
                 "amount": buy_amount,
                 "price": sell_price,
-                "timestamp": int(datetime.now().timestamp()) - 15 * 24 * 60 * 60,  # 15 days ago
+                "timestamp": sell_timestamp,
                 "type": "sell"
             })
         
