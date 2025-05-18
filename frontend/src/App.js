@@ -214,14 +214,14 @@ const Results = ({ results }) => {
           <div className="stat-icon"><FaTrophy /></div>
           <h3>Best Trade</h3>
           <p className="stat-value">{results.best_trade_profit.toFixed(4)} {getCurrencySymbol()}</p>
-          <p className="stat-token">{results.best_trade_token || "No data"}</p>
+          <p className="stat-token"><strong>{results.best_trade_token || "No data"}</strong></p>
         </div>
         
         <div className="stat-card best-multiplier">
           <div className="stat-icon"><FaChartLine /></div>
           <h3>Best Multiplier</h3>
           <p className="stat-value">{results.best_multiplier.toFixed(2)}x</p>
-          <p className="stat-token">{results.best_multiplier_token || "No data"}</p>
+          <p className="stat-token"><strong>{results.best_multiplier_token || "No data"}</strong></p>
         </div>
         
         <div className="stat-card pnl">
@@ -237,7 +237,7 @@ const Results = ({ results }) => {
           <div className="stat-icon"><FaSadTear /></div>
           <h3>Worst Trade</h3>
           <p className="stat-value negative">{results.worst_trade_loss.toFixed(4)} {getCurrencySymbol()}</p>
-          <p className="stat-token">{results.worst_trade_token || "No data"}</p>
+          <p className="stat-token"><strong>{results.worst_trade_token || "No data"}</strong></p>
         </div>
       </div>
     </div>
