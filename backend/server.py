@@ -316,45 +316,18 @@ async def get_solana_transactions(wallet_address: str) -> List[Dict[str, Any]]:
                     continue
             
             logger.info(f"Found {len(memecoin_transactions)} memecoin transactions for wallet {wallet_address}")
+            
+            # No sample data fallback - return empty list if no memecoin transactions found
+            return memecoin_transactions
         
         except Exception as e:
             logger.error(f"Error fetching Solana transactions: {str(e)}")
-            logger.warning(f"Using fallback sample data for wallet {wallet_address}")
-        
-        # If no memecoin transactions were found, use sample data
-        if not memecoin_transactions:
-            logger.warning(f"No memecoin transactions found for wallet {wallet_address}, using sample data")
-            # For demo purposes, return sample data when no real transactions are found
-            wallet_hash = sum([ord(c) for c in wallet_address])
-            
-            # Generate sample transactions
-            for token_address, token_symbol in list(SOLANA_MEMECOINS.items())[:3]:
-                memecoin_transactions.append({
-                    "tx_hash": f"sample-buy-{token_symbol}",
-                    "wallet_address": wallet_address,
-                    "token_address": token_address,
-                    "token_symbol": token_symbol,
-                    "amount": 100 + (wallet_hash % 1000),
-                    "price": 0.00001 + (wallet_hash % 100) / 10000000,
-                    "timestamp": int(time.time()) - 30 * 24 * 60 * 60,
-                    "type": "buy"
-                })
-                
-                memecoin_transactions.append({
-                    "tx_hash": f"sample-sell-{token_symbol}",
-                    "wallet_address": wallet_address,
-                    "token_address": token_address,
-                    "token_symbol": token_symbol,
-                    "amount": 100 + (wallet_hash % 1000),
-                    "price": 0.00005 + (wallet_hash % 100) / 1000000,
-                    "timestamp": int(time.time()) - 15 * 24 * 60 * 60,
-                    "type": "sell"
-                })
-        
-        return memecoin_transactions
+            # Return empty list - No sample data fallback
+            return []
         
     except Exception as e:
         logger.error(f"Error getting Solana transactions: {str(e)}")
+        # Return empty list - No sample data fallback
         return []
 
 async def get_base_transactions(wallet_address: str) -> List[Dict[str, Any]]:
