@@ -423,7 +423,7 @@ const Home = () => {
         </div>
         
         <div className="disclaimer">
-          Note: This tool uses deterministic simulation based on wallet address patterns to demonstrate functionality.
+          This tool queries real blockchain data to analyze memecoin transactions. If no memecoin trades are found, sample data may be used as a fallback.
         </div>
         
         {showLeaderboard ? (
