@@ -12,6 +12,12 @@ import uuid
 import requests
 import random
 from datetime import datetime
+import asyncio
+import sys
+
+# Import our enhanced scanner
+sys.path.append("/app/backend")
+from enhanced_scanner import analyze_wallet_transactions
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
