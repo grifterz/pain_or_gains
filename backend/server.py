@@ -201,10 +201,11 @@ async def get_solana_transactions(wallet_address: str) -> List[Dict[str, Any]]:
             
             if not signatures:
                 logger.warning(f"No transactions found for wallet {wallet_address}")
-                raise Exception("No transactions found")
+                # Return empty list - No sample data fallback
+                return []
             
             # Process each transaction to identify memecoin transactions
-            for sig in signatures[:10]:  # Limit to 10 transactions to avoid timeout
+            for sig in signatures[:30]:  # Limit to 30 transactions to avoid timeout
                 try:
                     # Get transaction details
                     tx_payload = {
