@@ -280,7 +280,19 @@ body {
 
 .stat-token {
   font-size: 1.2rem;
-  opacity: 0.8;
+  opacity: 0.9;
+}
+
+.stat-token strong {
+  font-size: 1.3rem;
+  opacity: 1;
+  color: var(--black);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.stat-card.worst-trade .stat-token strong {
+  color: var(--white);
 }
 
 /* Disclaimer */
