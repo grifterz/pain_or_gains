@@ -157,19 +157,19 @@ class MemeAnalyzerTester:
         if success and wallet_address == "GPT8wwUbnYgxckmFmV2Pj1MYucodd9R4P8xNqv9WEwrr":
             print("\nVerifying Solana wallet specific token names:")
             
-            # Check for PUMP token instead of FHRQk2
-            if response.get("best_trade_token") == "PUMP":
-                print("✅ Best trade token shows as PUMP (not FHRQk2)")
+            # Check for JEWCOIN token instead of FHRQk2
+            if response.get("best_trade_token") == "JEWCOIN":
+                print("✅ Best trade token shows as JEWCOIN (not FHRQk2 or PUMP)")
                 self.tests_passed += 1
             else:
-                print(f"❌ Best trade token shows as {response.get('best_trade_token')} instead of PUMP")
+                print(f"❌ Best trade token shows as {response.get('best_trade_token')} instead of JEWCOIN")
                 
-            # Check for PUMP token for best multiplier
-            if response.get("best_multiplier_token") == "PUMP":
-                print("✅ Best multiplier token shows as PUMP")
+            # Check for JEWCOIN token for best multiplier
+            if response.get("best_multiplier_token") == "JEWCOIN":
+                print("✅ Best multiplier token shows as JEWCOIN")
                 self.tests_passed += 1
             else:
-                print(f"❌ Best multiplier token shows as {response.get('best_multiplier_token')} instead of PUMP")
+                print(f"❌ Best multiplier token shows as {response.get('best_multiplier_token')} instead of JEWCOIN")
                 
             # Check for profit values
             if response.get("best_trade_profit") and abs(response.get("best_trade_profit") - 0.2) < 0.1:
