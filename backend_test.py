@@ -5,7 +5,7 @@ import sys
 from datetime import datetime
 
 class MemecoinsAPITester:
-    def __init__(self, base_url="https://43b589cc-db04-440d-85a8-d0c5492c5451.preview.emergentagent.com"):
+    def __init__(self, base_url="https://994f8226-f44b-42aa-9a0f-715c84fc22e4.preview.emergentagent.com"):
         self.base_url = base_url
         self.tests_run = 0
         self.tests_passed = 0
