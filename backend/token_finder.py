@@ -14,7 +14,10 @@ from typing import Tuple, Dict, Any, Optional
 sys.path.append("/app/backend")
 
 # Import our Syndica integration
-from external_integrations.syndica_integration import get_token_name_and_symbol as syndica_get_token_name
+from external_integrations.syndica_integration import (
+    get_token_name_and_symbol as syndica_get_token_name,
+    get_pump_token_info
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -37,6 +40,9 @@ BASE_TOKEN_FALLBACKS = {
     "0x692c1564c82e6a3509ee189d1b666df9a309b420": {"name": "Based", "symbol": "BASED"},
     "0xc53fc22033a4bcb15b5405c38e67e378c960ee6b": {"name": "Degen", "symbol": "DEGEN"}
 }
+
+# Get hardcoded pump token info
+SOLANA_TOKEN_FALLBACKS = get_pump_token_info()
 
 def get_solana_token_info(token_address) -> Dict[str, Any]:
     """
@@ -95,19 +101,23 @@ def get_solana_token_info(token_address) -> Dict[str, Any]:
         logger.error(f"Error fetching Solana token info: {str(e)}")
     
     # Return fallback or default info
-    default_info = {
-        "name": token_address[:10] + "...",
-        "symbol": token_address[:6],
-        "decimals": 9
-    }
+    if token_address in SOLANA_TOKEN_FALLBACKS:
+        token_info = SOLANA_TOKEN_FALLBACKS[token_address]
+        logger.info(f"Using hardcoded fallback for {token_address}: {token_info}")
+    else:
+        token_info = {
+            "name": token_address[:10] + "...",
+            "symbol": token_address[:6],
+            "decimals": 9
+        }
     
     # Cache the default result
     TOKEN_CACHE[cache_key] = {
-        'data': default_info,
+        'data': token_info,
         'timestamp': now
     }
     
-    return default_info
+    return token_info
 
 def get_base_token_info(token_address) -> Dict[str, Any]:
     """
@@ -190,17 +200,23 @@ def get_token_name(token_address, blockchain) -> Tuple[str, str]:
     """
     try:
         if blockchain.lower() == "solana":
-            # First try Syndica RPC API for Solana tokens
+            # First check for hardcoded fallbacks for known tokens
+            if token_address in SOLANA_TOKEN_FALLBACKS:
+                logger.info(f"Using hardcoded token info for {token_address}")
+                token_info = SOLANA_TOKEN_FALLBACKS[token_address]
+                return token_info["name"], token_info["symbol"]
+                
+            # Next try Syndica RPC API for Solana tokens
             try:
                 logger.info(f"Trying Syndica RPC for token {token_address}")
                 name, symbol = syndica_get_token_name(token_address)
                 logger.info(f"Syndica returned name={name}, symbol={symbol} for {token_address}")
                 
-                # If both name and symbol are available, return them
+                # If both name and symbol are available and not fallbacks, return them
                 if name and symbol and name != token_address[:10] + "..." and symbol != token_address[:6]:
                     return name, symbol
                 else:
-                    logger.warning(f"Syndica fallback used for token {token_address}")
+                    logger.warning(f"Syndica returned fallbacks for token {token_address}")
             except Exception as e:
                 logger.error(f"Error using Syndica for token {token_address}: {str(e)}")
             
@@ -208,10 +224,13 @@ def get_token_name(token_address, blockchain) -> Tuple[str, str]:
             logger.info(f"Falling back to Solscan for token {token_address}")
             token_info = get_solana_token_info(token_address)
             return token_info["name"], token_info["symbol"]
+        
         elif blockchain.lower() == "base":
             token_info = get_base_token_info(token_address)
             return token_info["name"], token_info["symbol"]
+        
         else:
+            logger.warning(f"Unknown blockchain: {blockchain}")
             return token_address[:10] + "...", token_address[:6]
             
     except Exception as e:
