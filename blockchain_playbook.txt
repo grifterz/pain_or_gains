@@ -1,0 +1,260 @@
+<think>
+Okay, I need to create a detailed integration playbook for a Blockchain API that handles Solana and Base (Ethereum L2) transaction data for a memecoin analysis app using FastAPI and React. Let me start by breaking down the requirements.
+
+First, the user wants installation steps. For Solana, the official CLI and Python SDK are essential. From the search results, I see that the Solana CLI can be installed via curl on Mac/Linux and WSL for Windows. The Python package 'solana' is available on PyPI. For Base, since it's an Ethereum L2, web3.py would be suitable, and the search results show examples using web3.py with Infura or QuickNode endpoints.
+
+Next, API key setup. The user needs instructions on obtaining keys from providers like QuickNode, Alchemy, or Infura. Security best practices include using environment variables and not hardcoding keys. The search results mention using .env files and libraries like python-dotenv, which aligns with best practices.
+
+For the FastAPI backend, I need code examples. The search results include a FastAPI example with Solana using solana-py and web3.py for Ethereum. I'll structure the backend with separate routers for Solana and Base. The Solana router can use the solana.rpc.api.Client, while Base uses web3.Web3 with an HTTPProvider. Authentication middleware might be needed if the frontend requires user wallet integration, but the user didn't specify that, so maybe basic API key validation in headers.
+
+Required frontend code in React. The search results show using ethers.js with MetaMask. For Solana, the wallet adapter for React is mentioned. I'll include connecting wallets (Phantom for Solana, MetaMask for Base) and fetching transaction data via Axios from the FastAPI endpoints.
+
+Testing procedures. The search results reference pytest with FastAPI TestClient. I'll outline writing unit tests for the API endpoints and integration tests with mocked blockchain responses. Also, include Postman testing steps.
+
+Common pitfalls: Environment setup issues, incorrect RPC endpoints, handling async code in FastAPI, and transaction versioning. The search results mention issues with Solana's transaction versions and middleware configuration in web3.py.
+
+Now, structuring the playbook. Start with installation steps for both blockchains. Then API key setup, followed by backend setup with code samples for each blockchain. Frontend components for each, testing procedures, and common pitfalls. Ensure all code samples are concise and include necessary imports and configurations.
+
+Check the search results for correct installation commands. For example, Solana CLI installation via curl and solana-py via pip. Base uses web3.py and specifying the Chain ID 8453 for Base Mainnet. The Alchemy SDK example from the search can be adapted for Base.
+
+In the backend code, use dependencies like solana-py and web3.py, and handle CORS for React frontend. For testing, use pytest fixtures with TestClient. Frontend code should use Axios to fetch from the FastAPI endpoints and wallet adapters for signing transactions.
+
+Need to make sure all code samples are correct and align with the search results. Also, include instructions on setting environment variables and starting the FastAPI server with Uvicorn. Mention using --reload for development.
+
+Finally, verify that each section addresses the user's requirements, includes necessary citations from the search results, and follows the report format guidelines without using lists, keeping it narrative.
+</think>
+
+# Integration Playbook for Blockchain API in Memecoin Analysis Application
+
+This playbook provides a comprehensive guide to integrating Solana and Base (Ethereum L2) blockchain data into a FastAPI backend with React frontend. The implementation focuses on transaction analysis for memecoins using fundamental metrics outlined in recent research[5].
+
+## 1. Environment Setup
+
+### 1.1 Core Dependencies Installation
+```bash
+# Backend dependencies
+pip install fastapi uvicorn python-dotenv solana web3 httpx websockets
+
+# Frontend dependencies
+npm install @solana/web3.js @solana/wallet-adapter-react @solana/wallet-adapter-react-ui @solana/wallet-adapter-wallets ethers axios
+```
+
+### 1.2 Blockchain Node Configuration
+```python
+# .env configuration
+SOLANA_RPC_URL="https://api.mainnet.solana.com"
+BASE_RPC_URL="https://mainnet.base.org"
+ALCHEMY_API_KEY="your_key"  # For enhanced Base analytics[7][17]
+```
+
+## 2. FastAPI Backend Implementation
+
+### 2.1 Base (Ethereum L2) Transaction Processor
+```python
+from web3 import Web3
+from fastapi import APIRouter
+
+base_router = APIRouter()
+base_w3 = Web3(Web3.HTTPProvider(os.getenv("BASE_RPC_URL")))
+
+@base_router.get("/base/transactions/{address}")
+async def get_base_transactions(address: str):
+    """Retrieve ERC-20 transactions with memecoin analysis"""
+    contract = base_w3.eth.contract(
+        address='0xMEMECOIN_ADDRESS',
+        abi=ERC20_ABI
+    )
+    
+    # Calculate whale activity scores[5]
+    transfers = contract.events.Transfer.get_logs(
+        fromBlock='latest',
+        argument_filters={'to': address}
+    )
+    
+    return {
+        "liquidity_analysis": calculate_liquidity_metrics(transfers),
+        "whale_score": identify_whale_activity(transfers[16])
+    }
+```
+
+### 2.2 Solana Transaction Processor
+```python
+from solana.rpc.api import Client
+from fastapi import APIRouter
+
+solana_router = APIRouter()
+solana_client = Client(os.getenv("SOLANA_RPC_URL"))
+
+@solana_router.get("/solana/transactions/{wallet}")
+async def get_solana_transactions(wallet: str):
+    """Analyze SPL token transactions with social engagement metrics"""
+    signatures = solana_client.get_signatures_for_address(
+        Pubkey.from_string(wallet), 
+        limit=100
+    )
+    
+    transactions = [
+        solana_client.get_transaction(sig.signature)
+        for sig in signatures.value[:5]
+    ]
+    
+    return {
+        "velocity_score": calculate_social_velocity(transactions),
+        "smart_money_indices": detect_smart_money(transactions[15][9])
+    }
+```
+
+## 3. Frontend React Integration
+
+### 3.1 Wallet Connection Providers
+```jsx
+// Wallet providers configuration
+import { WalletAdapterNetwork } from '@solana/wallet-adapter-base'
+import { PhantomWalletAdapter } from '@solana/wallet-adapter-wallets'
+
+const SolanaProvider = () => (
+  <WalletProvider wallets={[new PhantomWalletAdapter()]} autoConnect>
+    <WalletModalProvider>
+      <WalletMultiButton />
+    </WalletModalProvider>
+  </WalletProvider>
+)
+
+const BaseProvider = ({ children }) => {
+  const { ethereum } = window
+  const provider = new ethers.providers.Web3Provider(ethereum)
+  return <Context.Provider value={provider}>{children}</Context.Provider>
+}
+```
+
+### 3.2 Transaction Data Visualization
+```jsx
+// Memecoin dashboard component
+const MemecoinDashboard = ({ wallet }) => {
+  const [metrics, setMetrics] = useState({})
+  
+  useEffect(() => {
+    axios.get(`/api/solana/transactions/${wallet}`)
+      .then(res => setMetrics(prev => ({
+        ...prev,
+        solana: analyzeTransactionPatterns(res.data)
+      })))
+  }, [wallet])
+
+  return (
+    <div>
+      <LiquidityHeatmap data={metrics.liquidity} />
+      <WhaleActivityChart scores={metrics.whale_scores} />
+    </div>
+  )
+}
+```
+
+## 4. Security Configuration
+
+### 4.1 API Key Management
+```python
+# Middleware for rate limiting and key validation
+async def verify_api_key(request: Request):
+    if request.headers.get("X-API-KEY") != os.getenv("API_KEY"):
+        raise HTTPException(401, "Invalid API key")
+```
+
+### 4.2 Transaction Signing Validation
+```python
+def validate_solana_signature(public_key: str, signature: str, message: str):
+    """Verify transaction signatures using NaCl"""
+    pk = VerifyKey(bytes.fromhex(public_key))
+    try:
+        pk.verify(smessage=message.encode(), signature=bytes.fromhex(signature))
+        return True
+    except BadSignatureError:
+        return False[3]
+```
+
+## 5. Testing Procedures
+
+### 5.1 Unit Test Suite
+```python
+from fastapi.testclient import TestClient
+
+def test_solana_transaction_endpoint():
+    with TestClient(app) as client:
+        response = client.get("/solana/transactions/test_wallet")
+        assert response.status_code == 200
+        assert "velocity_score" in response.json()
+
+def test_base_analytics_endpoint():
+    with TestClient(app) as client:
+        response = client.get("/base/transactions/0xAddress")
+        assert "liquidity_analysis" in response.json()[6]
+```
+
+### 5.2 Postman Collection Tests
+```json
+{
+  "info": {
+    "name": "Blockchain API Tests",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Solana Transaction Analysis",
+      "request": {
+        "method": "GET",
+        "url": "{{url}}/solana/transactions/9mkRNstLTrJvg7hwJPPiZwH3C9MZk1ZJvC8jRb5kyKEJ"
+      },
+      "event": [{
+        "listen": "test",
+        "script": {
+          "exec": [
+            "pm.test('Response time validation', () => pm.expect(pm.response.responseTime).to.be.below(2000))"
+          ]
+        }
+      }]
+    }
+  ]
+}
+```
+
+## 6. Deployment Considerations
+
+### 6.1 Infrastructure Requirements
+```yaml
+# Docker-compose configuration
+services:
+  api:
+    image: memecoin-analysis-api
+    environment:
+      - SOLANA_RPC_URL=${SOLANA_RPC_URL}
+      - BASE_RPC_URL=${BASE_RPC_URL}
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+```
+
+### 6.2 Monitoring Setup
+```bash
+# Prometheus metrics endpoint
+curl -X POST -H "Content-Type: application/json" -d '{
+  "name": "transaction_volume",
+  "type": "gauge",
+  "help": "Current transaction processing rate",
+  "labels": ["chain"]
+}' http://localhost:9090/metrics
+```
+
+## Common Integration Challenges
+
+1. **Transaction Version Conflicts**: Solana transactions post v2 require explicit version handling[9]
+2. **Gas Estimation**: Base L2 requires EIP-1559 transaction formatting[11]
+3. **Data Consistency**: Implement block confirmation checks (6 blocks for Base, 32 slots for Solana)[17][9]
+4. **Rate Limiting**: Configure middleware for RPC provider limits[4][7]
+
+This playbook provides the essential components for building a production-ready memecoin analysis platform. Subsequent iterations should incorporate real-time social sentiment analysis and on-chain liquidity pool monitoring for enhanced predictive capabilities[5].
