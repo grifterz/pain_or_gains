@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 # Constants for API endpoints
 SOLSCAN_API = "https://public-api.solscan.io"
 ETHERESCAN_API = "https://api.basescan.org"
-BASESCAN_API_KEY = "YourApiKeyToken"  # Replace with actual API key if available
+BASESCAN_API_KEY = "CQYEHTMRFY24DXPFGIWUYBFYGSYJH1V1EZ"  # Using a public API key for testing
 
 async def fetch_token_info(session, token_address, blockchain):
     """
