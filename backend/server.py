@@ -179,7 +179,7 @@ async def get_solana_transactions(wallet_address: str) -> List[Dict[str, Any]]:
                 "params": [
                     wallet_address,
                     {
-                        "limit": 50  # Limit to most recent 50 transactions
+                        "limit": 100  # Increase limit to find more potential memecoin transactions
                     }
                 ]
             }
