@@ -281,12 +281,65 @@ class MemecoinsAPITester:
                     
         print("\n" + "="*50)
 
+def test_specific_base_wallet(tester, wallet_address="0x671b746d2c5a34609cce723cbf8f475639bc0fa2"):
+    """Test the specific Base wallet from the requirements"""
+    def validate_specific_wallet_response(data):
+        if not data:
+            return False, "Empty response"
+            
+        # Check required fields
+        required_fields = ["id", "wallet_address", "blockchain", "best_trade_profit", 
+                          "best_trade_token", "best_multiplier", "best_multiplier_token", 
+                          "all_time_pnl", "worst_trade_loss", "worst_trade_token"]
+        
+        missing_fields = [field for field in required_fields if field not in data]
+        if missing_fields:
+            return False, f"Missing required fields: {', '.join(missing_fields)}"
+            
+        # Verify wallet address matches
+        if data["wallet_address"] != wallet_address:
+            return False, f"Wallet address mismatch: {data['wallet_address']} != {wallet_address}"
+            
+        # Verify blockchain is base
+        if data["blockchain"] != "base":
+            return False, f"Blockchain mismatch: {data['blockchain']} != base"
+            
+        # Verify specific requirements
+        if data["best_trade_token"] != "PEPE":
+            return False, f"Best trade token should be PEPE, got {data['best_trade_token']}"
+            
+        if data["worst_trade_token"] != "BRETT":
+            return False, f"Worst trade token should be BRETT, got {data['worst_trade_token']}"
+            
+        if abs(data["all_time_pnl"] - 0.5) > 0.01:
+            return False, f"All-time PnL should be around 0.5, got {data['all_time_pnl']}"
+            
+        if abs(data["best_multiplier"] - 3.0) > 0.01:
+            return False, f"Best multiplier should be around 3.0x, got {data['best_multiplier']}"
+            
+        if data["best_multiplier_token"] != "PEPE":
+            return False, f"Best multiplier token should be PEPE, got {data['best_multiplier_token']}"
+            
+        return True, "Response contains correct data for the specific wallet"
+        
+    return tester.run_test(
+        "Analyze Specific Base Wallet",
+        "POST",
+        "api/analyze",
+        200,
+        data={"wallet_address": wallet_address, "blockchain": "base"},
+        custom_validation=validate_specific_wallet_response
+    )
+
 def main():
     # Setup
     tester = MemecoinsAPITester()
     
     # Run tests
     tester.test_root_endpoint()
+    
+    # Test the specific Base wallet from the requirements
+    specific_wallet_success, specific_wallet_data = test_specific_base_wallet(tester)
     
     # Test wallet with no memecoin activity
     no_activity_success, no_activity_data = tester.test_wallet_with_no_memecoin_activity()
