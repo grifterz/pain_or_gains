@@ -429,6 +429,12 @@ async def get_solana_token_transactions(wallet_address: str, token_addresses: Li
                 buy_price = 0.0001
                 amount = 1000.0
                 
+                # Use known token name if available
+                if token_address in SOLANA_TOKEN_NAMES:
+                    token_symbol = SOLANA_TOKEN_NAMES[token_address]
+                else:
+                    token_symbol = token_address[:6]
+                
                 transactions.append({
                     "tx_hash": f"synthetic-buy-{token_address}",
                     "wallet_address": wallet_address,
