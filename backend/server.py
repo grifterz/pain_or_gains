@@ -762,10 +762,18 @@ async def get_leaderboard(stat_type: str, blockchain: str = "solana", limit: int
         raise HTTPException(status_code=400, detail="Invalid stat_type")
     
     field, sort_direction = stat_map[stat_type]
+    field_token = f"{field.replace('profit', 'token').replace('loss', 'token')}"
     
-    # Query database for leaderboard data
+    # Query database for leaderboard data - only include entries with real data
+    # 1. Must have a non-zero value
+    # 2. Must have a token name
+    # 3. Sort by the specified field
     leaderboard = await db.trade_stats.find(
-        {"blockchain": blockchain}
+        {
+            "blockchain": blockchain,
+            field: {"$ne": 0},  # Non-zero value
+            field_token: {"$ne": ""}  # Non-empty token
+        }
     ).sort(field, sort_direction).limit(limit).to_list(limit)
     
     # Format results
@@ -773,7 +781,7 @@ async def get_leaderboard(stat_type: str, blockchain: str = "solana", limit: int
         {
             "wallet_address": entry["wallet_address"],
             "value": entry[field],
-            "token": entry.get(f"{field.replace('profit', 'token').replace('loss', 'token')}", ""),
+            "token": entry.get(field_token, ""),
             "rank": i + 1
         }
         for i, entry in enumerate(leaderboard)
