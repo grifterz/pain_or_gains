@@ -946,22 +946,36 @@ async def get_leaderboard(stat_type: str, blockchain: str = Query(...)):
             
         field, sort_order = stat_map[stat_type]
         
-        # Determine the field that contains the token name
-        field_token = f"{field}_token"
-        if stat_type == "all_time_pnl":
-            field_token = "all_time_pnl"  # No token for PnL
-            
-        # Only include wallets with real data
-        query = {
-            "blockchain": blockchain,
-            field: {"$ne": 0},  # Non-zero value
-        }
+        # Clear the collection of duplicates before returning the leaderboard
+        # This aggregation gets the latest analysis for each wallet
+        pipeline = [
+            {"$match": {"blockchain": blockchain}},
+            {"$sort": {"timestamp": -1}},  # Sort by most recent timestamp
+            {"$group": {
+                "_id": "$wallet_address",
+                "doc": {"$first": "$$ROOT"}  # Keep only the most recent document
+            }},
+            {"$replaceRoot": {"newRoot": "$doc"}}
+        ]
         
-        cursor = collection.find(query).sort(field, sort_order).limit(10)
+        # Execute the aggregation and store results in a list
+        results = []
+        async for doc in collection.aggregate(pipeline):
+            # Only include entries with data
+            if doc[field] != 0:
+                results.append(doc)
+                
+        # Sort the results by the appropriate field
+        results.sort(key=lambda x: x[field], reverse=(sort_order == -1))
+        
+        # Limit to top 10
+        results = results[:10]
+        
+        # Format the response
         leaderboard = []
         rank = 1
         
-        async for doc in cursor:
+        for doc in results:
             value = doc[field]
             
             # Get the correct token based on stat type
