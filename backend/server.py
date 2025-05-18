@@ -79,7 +79,9 @@ WALLET_TOKENS = {
     ],
     "GPT8wwUbnYgxckmFmV2Pj1MYucodd9R4P8xNqv9WEwrr": [
         "FHRQk2cYczCo4t6GhEHaKS6WSHXYcAhs7i4V6yWppump",
-        "3yCDp1E5yzA1qoNQuDjNr5iXyj1CSHjf3dktHpnypump"
+        "3yCDp1E5yzA1qoNQuDjNr5iXyj1CSHjf3dktHpnypump",
+        "56UtHy4oBGeLNEenvvXJhhAwDwhNc2bbZgAPUZaFpump",
+        "5HyZiyaSsQt8VZBAJcULZhtykiVmkAkWLiQJCER9pump"
     ]
 }
 
